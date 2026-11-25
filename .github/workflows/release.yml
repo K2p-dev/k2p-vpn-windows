@@ -45,11 +45,37 @@ jobs:
           Copy-Item "release_assets\K2P-VPN-Windows-${tag}.zip" "release_assets\K2P-VPN-Windows.zip" -Force
           Write-Output "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
+      - name: Upload Actions Artifact (Backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: K2P-VPN-Windows-${{ env.RELEASE_TAG }}
+          path: release_assets/*.zip
+          retention-days: 14
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "${{ env.RELEASE_TAG }}" --yes || true
-          gh release create "${{ env.RELEASE_TAG }}" release_assets/*.zip --title "Как 2 пальца (K2P VPN) ${{ env.RELEASE_TAG }}" --notes "Автоматическая сборка релиза ${{ env.RELEASE_TAG }}"
+          TAG="${{ env.RELEASE_TAG }}"
+          gh release delete "$TAG" --yes || true
+          # Удаляем зависшие черновики без тега, если прошлый аплоад упал по 500
+          gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.draft == true) | .id' | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/releases/{}" || true
+
+          gh release create "$TAG" --title "Как 2 пальца (K2P VPN) $TAG" --notes "Автоматическая сборка релиза $TAG"
+
+          for f in release_assets/*.zip; do
+            echo "Uploading $f..."
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$f" --clobber; then
+                echo "Uploaded $f successfully"
+                break
+              fi
+              echo "Attempt $attempt failed for $f, retrying in 15s..."
+              sleep 15
+              if [ "$attempt" -eq 5 ]; then
+                exit 1
+              fi
+            done
+          done
