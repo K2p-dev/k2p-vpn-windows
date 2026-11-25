@@ -35,40 +35,24 @@ public sealed class SettingsStorageService
 
     public string DeviceName => $"{Environment.MachineName} (Windows)";
 
-    public string? GetToken()
-    {
-        lock (_lock)
-        {
-            if (string.IsNullOrWhiteSpace(_settings.EncryptedTokenBase64))
-                return null;
-
-            try
-            {
-                var protectedBytes = Convert.FromBase64String(_settings.EncryptedTokenBase64);
-                var rawBytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(rawBytes);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-    }
+    public string? GetToken() => UnprotectString(_settings.EncryptedTokenBase64);
 
     public void SetToken(string? token)
     {
         lock (_lock)
         {
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                _settings.EncryptedTokenBase64 = null;
-            }
-            else
-            {
-                var rawBytes = Encoding.UTF8.GetBytes(token.Trim());
-                var protectedBytes = ProtectedData.Protect(rawBytes, null, DataProtectionScope.CurrentUser);
-                _settings.EncryptedTokenBase64 = Convert.ToBase64String(protectedBytes);
-            }
+            _settings.EncryptedTokenBase64 = ProtectString(token);
+            SaveToDisk();
+        }
+    }
+
+    public string? GetSubscriptionUrl() => UnprotectString(_settings.EncryptedSubscriptionUrlBase64);
+
+    public void SetSubscriptionUrl(string? url)
+    {
+        lock (_lock)
+        {
+            _settings.EncryptedSubscriptionUrlBase64 = ProtectString(url);
             SaveToDisk();
         }
     }
@@ -87,10 +71,33 @@ public sealed class SettingsStorageService
         lock (_lock)
         {
             _settings.EncryptedTokenBase64 = null;
-            _settings.SubscriptionUrl = null;
+            _settings.EncryptedSubscriptionUrlBase64 = null;
             _settings.CachedSubscriptionBody = null;
             _settings.CachedTrafficInfo = null;
             SaveToDisk();
+        }
+    }
+
+    private static string? ProtectString(string? plain)
+    {
+        if (string.IsNullOrWhiteSpace(plain)) return null;
+        var rawBytes = Encoding.UTF8.GetBytes(plain.Trim());
+        var protectedBytes = ProtectedData.Protect(rawBytes, null, DataProtectionScope.CurrentUser);
+        return Convert.ToBase64String(protectedBytes);
+    }
+
+    private static string? UnprotectString(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return null;
+        try
+        {
+            var protectedBytes = Convert.FromBase64String(base64);
+            var rawBytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(rawBytes);
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -106,7 +113,7 @@ public sealed class SettingsStorageService
         }
         catch
         {
-            // Ignore corrupted config and start fresh
+            // Ignore corrupted config
         }
         return new LocalAppSettings();
     }

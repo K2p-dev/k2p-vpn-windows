@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime;
+using System.Runtime.InteropServices;
+using System.Windows;
 using K2pVpnWindows.Config;
-using K2pVpnWindows.Models;
 using Microsoft.Win32;
+using WpfColor = System.Windows.Media.Color;
 
 namespace K2pVpnWindows.Services;
 
@@ -12,6 +15,10 @@ public sealed class WindowsIntegrationService
     private const string RunRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "K2pVpnWindows";
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetProcessWorkingSetSize(nint hProcess, nint dwMinimumWorkingSetSize, nint dwMaximumWorkingSetSize);
+
     private readonly K2pApiClient _api;
     private readonly SettingsStorageService _storage;
 
@@ -19,6 +26,49 @@ public sealed class WindowsIntegrationService
     {
         _api = api;
         _storage = storage;
+    }
+
+    public static void TrimWorkingSetMemory()
+    {
+        try
+        {
+            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(2, GCCollectionMode.Optimized, blocking: false);
+            GC.WaitForPendingFinalizers();
+            using var proc = Process.GetCurrentProcess();
+            SetProcessWorkingSetSize(proc.Handle, -1, -1);
+        }
+        catch
+        {
+            // Ignore working set trim errors
+        }
+    }
+
+    public static bool IsWindowsLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            var val = key?.GetValue("AppsUseLightTheme");
+            return val is int i && i == 1;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static WpfColor GetWindowsAccentColor()
+    {
+        try
+        {
+            var c = SystemParameters.WindowGlassColor;
+            return WpfColor.FromRgb(c.R, c.G, c.B);
+        }
+        catch
+        {
+            return WpfColor.FromRgb(0xE1, 0x1D, 0x48);
+        }
     }
 
     public static void SetAutoStart(bool enabled)
@@ -41,7 +91,7 @@ public sealed class WindowsIntegrationService
         }
         catch
         {
-            // Ignore registry permission errors
+            // Ignore registry errors
         }
     }
 
@@ -86,7 +136,7 @@ public sealed class WindowsIntegrationService
 
         var currentNorm = NormalizeVersion(AppConfig.AppVersion);
         var latestNorm = NormalizeVersion(release.TagName);
-        var isNewer = CompareVersions(latestNorm, currentNorm) > 0;
+        var isNewer = latestNorm.CompareTo(currentNorm) > 0;
 
         var asset = release.Assets.FirstOrDefault(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                     ?? release.Assets.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
@@ -171,8 +221,6 @@ public sealed class WindowsIntegrationService
             .TakeWhile(c => char.IsDigit(c) || c == '.')
             .ToArray())
             .TrimEnd('.');
-        return Version.TryParse(digits, out var v) ? v : new Version(0, 1, 0);
+        return Version.TryParse(digits, out var v) ? v : new Version(0, 2, 0);
     }
-
-    private static int CompareVersions(Version a, Version b) => a.CompareTo(b);
 }

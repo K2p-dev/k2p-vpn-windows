@@ -1,10 +1,14 @@
 using System.ComponentModel;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using K2pVpnWindows.Config;
 using K2pVpnWindows.Models;
+using K2pVpnWindows.Services;
 using Forms = System.Windows.Forms;
 using WpfBrush = System.Windows.Media.Brush;
 using WpfBrushes = System.Windows.Media.Brushes;
@@ -16,21 +20,34 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ToolStripMenuItem _trayToggleItem;
     private readonly DispatcherTimer _updateCheckTimer;
+    private Icon? _baseAppIcon;
+    private Icon? _currentTrayIcon;
     private bool _isExplicitExit;
+    private bool _hasShownTrayBalloon;
+    private bool _isAuthenticated;
 
     public MainWindow(bool startMinimized = false)
     {
         InitializeComponent();
 
-        // System Tray Setup
-        _trayToggleItem = new Forms.ToolStripMenuItem("Подключить", null, async (_, _) =>
+        ThemeManager.Apply(App.Storage.Current);
+        ApplyBackgroundSettings();
+
+        // System Tray Setup (5 menu items + double click)
+        _trayToggleItem = new Forms.ToolStripMenuItem("Подключить VPN", null, async (_, _) =>
         {
             await Dispatcher.InvokeAsync(async () => await MainScreen.ToggleConnectionAsync());
         });
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(_trayToggleItem);
-        menu.Items.Add("Открыть", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
+        menu.Items.Add("Переподключить", null, async (_, _) =>
+        {
+            await Dispatcher.InvokeAsync(async () => await MainScreen.ReconnectAsync());
+        });
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Открыть полный экран", null, (_, _) => Dispatcher.Invoke(() => OpenInMode(AppWindowMode.Full)));
+        menu.Items.Add("Открыть компактный режим", null, (_, _) => Dispatcher.Invoke(() => OpenInMode(AppWindowMode.Compact)));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Выход", null, (_, _) => Dispatcher.Invoke(ExitApplication));
 
@@ -44,18 +61,16 @@ public partial class MainWindow : Window
         try
         {
             var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"))?.Stream;
-            if (iconStream is not null) _trayIcon.Icon = new Icon(iconStream);
+            if (iconStream is not null) _baseAppIcon = new Icon(iconStream);
         }
         catch
         {
-            _trayIcon.Icon = SystemIcons.Application;
+            _baseAppIcon = SystemIcons.Application;
         }
+        UpdateTrayVisualState(App.XrayEngine.State);
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreFromTray);
 
-        App.XrayEngine.StateChanged += state => Dispatcher.Invoke(() =>
-        {
-            _trayToggleItem.Text = state == VpnConnectionState.Connected ? "Отключить" : "Подключить";
-        });
+        App.XrayEngine.StateChanged += state => Dispatcher.Invoke(() => UpdateTrayVisualState(state));
 
         App.ApiClient.SessionRevoked += msg => Dispatcher.Invoke(async () =>
         {
@@ -65,7 +80,18 @@ public partial class MainWindow : Window
         });
 
         AuthScreen.Authenticated += async () => await OnAuthenticatedAsync();
-        SettingsScreen.LoggedOut += ShowAuthScreen;
+        ProfileScreen.LoggedOut += ShowAuthScreen;
+        SettingsScreen.AppearanceChanged += () =>
+        {
+            ThemeManager.Apply(App.Storage.Current);
+            ApplyBackgroundSettings();
+        };
+
+        // Pause/release video background immediately when minimized, hidden, or deactivated
+        StateChanged += (_, _) => SyncVideoPlaybackState();
+        IsVisibleChanged += (_, _) => SyncVideoPlaybackState();
+        Deactivated += (_, _) => PauseVideoBackground();
+        Activated += (_, _) => SyncVideoPlaybackState();
 
         // 24h Background Update Check
         _updateCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(24) };
@@ -74,6 +100,8 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            ApplyWindowMode(App.Storage.Current.WindowMode);
+
             if (HasCredentials())
             {
                 await OnAuthenticatedAsync();
@@ -85,7 +113,7 @@ public partial class MainWindow : Window
 
             if (startMinimized && App.Storage.Current.MinimizeToTray)
             {
-                Hide();
+                MinimizeToTrayInternal(showTip: false);
             }
 
             if (!App.Storage.Current.LastUpdateCheckUtc.HasValue ||
@@ -98,11 +126,12 @@ public partial class MainWindow : Window
 
     private static bool HasCredentials() =>
         !string.IsNullOrWhiteSpace(App.Storage.GetToken()) ||
-        !string.IsNullOrWhiteSpace(App.Storage.Current.SubscriptionUrl);
+        !string.IsNullOrWhiteSpace(App.Storage.GetSubscriptionUrl());
 
     private async Task OnAuthenticatedAsync()
     {
-        NavBar.Visibility = Visibility.Visible;
+        _isAuthenticated = true;
+        ApplyWindowMode(App.Storage.Current.WindowMode);
         SwitchView(0);
 
         UserProfileResponse? profile = null;
@@ -117,7 +146,7 @@ public partial class MainWindow : Window
                 StatusBadge.Visibility = Visibility.Visible;
 
                 if (!string.IsNullOrWhiteSpace(p.SubLink))
-                    App.Storage.Update(s => s.SubscriptionUrl = p.SubLink);
+                    App.Storage.SetSubscriptionUrl(p.SubLink);
             }
         }
         else
@@ -128,16 +157,20 @@ public partial class MainWindow : Window
 
         await MainScreen.LoadNodesAsync();
         await TariffsScreen.LoadAsync(profile);
+        await ProfileScreen.LoadAsync(profile);
         SettingsScreen.RefreshFromStorage();
     }
 
     private void ShowAuthScreen()
     {
+        _isAuthenticated = false;
+        ApplyWindowMode(AppWindowMode.Full);
         NavBar.Visibility = Visibility.Collapsed;
         StatusBadge.Visibility = Visibility.Collapsed;
         AuthScreen.Visibility = Visibility.Visible;
         MainScreen.Visibility = Visibility.Collapsed;
         TariffsScreen.Visibility = Visibility.Collapsed;
+        ProfileScreen.Visibility = Visibility.Collapsed;
         SettingsScreen.Visibility = Visibility.Collapsed;
     }
 
@@ -146,7 +179,8 @@ public partial class MainWindow : Window
         AuthScreen.Visibility = Visibility.Collapsed;
         MainScreen.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         TariffsScreen.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
-        SettingsScreen.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        ProfileScreen.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        SettingsScreen.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
 
         var accent = (WpfBrush)FindResource("AccentBrush");
         var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
@@ -155,8 +189,162 @@ public partial class MainWindow : Window
         NavMainBtn.Foreground = index == 0 ? WpfBrushes.White : textSec;
         NavTariffsBtn.Background = index == 1 ? accent : WpfBrushes.Transparent;
         NavTariffsBtn.Foreground = index == 1 ? WpfBrushes.White : textSec;
-        NavSettingsBtn.Background = index == 2 ? accent : WpfBrushes.Transparent;
-        NavSettingsBtn.Foreground = index == 2 ? WpfBrushes.White : textSec;
+        NavProfileBtn.Background = index == 2 ? accent : WpfBrushes.Transparent;
+        NavProfileBtn.Foreground = index == 2 ? WpfBrushes.White : textSec;
+        NavSettingsBtn.Background = index == 3 ? accent : WpfBrushes.Transparent;
+        NavSettingsBtn.Foreground = index == 3 ? WpfBrushes.White : textSec;
+    }
+
+    private void ApplyWindowMode(AppWindowMode mode)
+    {
+        var isCompact = mode == AppWindowMode.Compact && _isAuthenticated;
+        Width = isCompact ? 360 : 460;
+        Height = isCompact ? 460 : 760;
+
+        NavBar.Visibility = (_isAuthenticated && !isCompact) ? Visibility.Visible : Visibility.Collapsed;
+        ModeToggleBtn.Content = isCompact ? "◰" : "◱";
+        MainScreen.SetCompactMode(isCompact);
+
+        if (isCompact)
+        {
+            SwitchView(0);
+        }
+    }
+
+    private void OnToggleWindowModeClick(object sender, RoutedEventArgs e)
+    {
+        if (!_isAuthenticated) return;
+        var next = App.Storage.Current.WindowMode == AppWindowMode.Full
+            ? AppWindowMode.Compact
+            : AppWindowMode.Full;
+        App.Storage.Update(s => s.WindowMode = next);
+        ApplyWindowMode(next);
+    }
+
+    private void OpenInMode(AppWindowMode mode)
+    {
+        if (_isAuthenticated)
+        {
+            App.Storage.Update(s => s.WindowMode = mode);
+            ApplyWindowMode(mode);
+        }
+        RestoreFromTray();
+    }
+
+    private void ApplyBackgroundSettings()
+    {
+        var s = App.Storage.Current;
+        BgGradientLayer.Visibility = s.BackgroundType == AppBackgroundType.Gradient ? Visibility.Visible : Visibility.Collapsed;
+
+        if (s.BackgroundType == AppBackgroundType.Image && !string.IsNullOrWhiteSpace(s.BackgroundMediaPath) && File.Exists(s.BackgroundMediaPath))
+        {
+            StopAndReleaseVideo();
+            BgImageLayer.Source = new BitmapImage(new Uri(s.BackgroundMediaPath));
+            BgImageLayer.Visibility = Visibility.Visible;
+            BgDimOverlay.Opacity = s.BackgroundDimOpacity;
+        }
+        else if (s.BackgroundType == AppBackgroundType.Video && !string.IsNullOrWhiteSpace(s.BackgroundMediaPath) && File.Exists(s.BackgroundMediaPath))
+        {
+            BgImageLayer.Source = null;
+            BgImageLayer.Visibility = Visibility.Collapsed;
+            BgVideoLayer.Visibility = Visibility.Visible;
+            BgDimOverlay.Opacity = s.BackgroundDimOpacity;
+            SyncVideoPlaybackState();
+        }
+        else
+        {
+            BgImageLayer.Source = null;
+            BgImageLayer.Visibility = Visibility.Collapsed;
+            StopAndReleaseVideo();
+            BgDimOverlay.Opacity = 0;
+        }
+    }
+
+    private void SyncVideoPlaybackState()
+    {
+        var s = App.Storage.Current;
+        if (s.BackgroundType != AppBackgroundType.Video || string.IsNullOrWhiteSpace(s.BackgroundMediaPath) || !File.Exists(s.BackgroundMediaPath))
+        {
+            StopAndReleaseVideo();
+            return;
+        }
+
+        var canPlay = IsVisible && WindowState != WindowState.Minimized && IsActive;
+        if (canPlay)
+        {
+            if (BgVideoLayer.Source is null)
+                BgVideoLayer.Source = new Uri(s.BackgroundMediaPath);
+            BgVideoLayer.Play();
+        }
+        else if (!IsVisible)
+        {
+            // Fully release decoder memory when hidden in tray
+            StopAndReleaseVideo();
+        }
+        else
+        {
+            BgVideoLayer.Pause();
+        }
+    }
+
+    private void PauseVideoBackground()
+    {
+        if (BgVideoLayer.Visibility == Visibility.Visible)
+        {
+            BgVideoLayer.Pause();
+        }
+    }
+
+    private void StopAndReleaseVideo()
+    {
+        if (BgVideoLayer.Source is not null)
+        {
+            BgVideoLayer.Stop();
+            BgVideoLayer.Close();
+            BgVideoLayer.Source = null;
+        }
+        BgVideoLayer.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnVideoMediaEnded(object sender, RoutedEventArgs e)
+    {
+        BgVideoLayer.Position = TimeSpan.Zero;
+        BgVideoLayer.Play();
+    }
+
+    private void UpdateTrayVisualState(VpnConnectionState state)
+    {
+        var isConnected = state == VpnConnectionState.Connected;
+        _trayToggleItem.Text = isConnected ? "Отключить VPN" : "Подключить VPN";
+        _trayIcon.Text = isConnected ? $"{AppConfig.AppName} — Подключено" : $"{AppConfig.AppName} — Отключено";
+
+        _trayIcon.Icon = CreateStatusTrayIcon(isConnected);
+        _currentTrayIcon?.Dispose();
+        _currentTrayIcon = _trayIcon.Icon;
+    }
+
+    private Icon CreateStatusTrayIcon(bool isConnected)
+    {
+        try
+        {
+            using var bmp = new Bitmap(32, 32);
+            using var g = Graphics.FromImage(bmp);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            if (_baseAppIcon is not null)
+            {
+                g.DrawIcon(_baseAppIcon, new Rectangle(0, 0, 32, 32));
+            }
+            var dotColor = isConnected ? Color.FromArgb(34, 197, 94) : Color.FromArgb(225, 29, 72);
+            using var dotBrush = new SolidBrush(dotColor);
+            using var borderPen = new Pen(Color.FromArgb(13, 9, 10), 2f);
+            g.FillEllipse(dotBrush, 19, 19, 11, 11);
+            g.DrawEllipse(borderPen, 19, 19, 11, 11);
+            return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+        }
+        catch
+        {
+            return _baseAppIcon ?? SystemIcons.Application;
+        }
     }
 
     private void OnNavMainClick(object sender, RoutedEventArgs e) => SwitchView(0);
@@ -167,10 +355,16 @@ public partial class MainWindow : Window
         await TariffsScreen.LoadAsync();
     }
 
+    private async void OnNavProfileClick(object sender, RoutedEventArgs e)
+    {
+        SwitchView(2);
+        await ProfileScreen.LoadAsync();
+    }
+
     private void OnNavSettingsClick(object sender, RoutedEventArgs e)
     {
         SettingsScreen.RefreshFromStorage();
-        SwitchView(2);
+        SwitchView(3);
     }
 
     private void OnTitleBarMouseDown(object sender, MouseButtonEventArgs e)
@@ -181,28 +375,41 @@ public partial class MainWindow : Window
     private void OnMinimizeClick(object sender, RoutedEventArgs e)
     {
         if (App.Storage.Current.MinimizeToTray)
-            Hide();
+            MinimizeToTrayInternal(showTip: true);
         else
             WindowState = WindowState.Minimized;
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e)
     {
-        if (App.Storage.Current.MinimizeToTray)
-            Hide();
-        else
-            ExitApplication();
+        // Clicking [X] minimizes to System Tray instead of exiting
+        MinimizeToTrayInternal(showTip: true);
     }
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (!_isExplicitExit && App.Storage.Current.MinimizeToTray)
+        if (!_isExplicitExit)
         {
             e.Cancel = true;
-            Hide();
+            MinimizeToTrayInternal(showTip: true);
             return;
         }
         base.OnClosing(e);
+    }
+
+    private void MinimizeToTrayInternal(bool showTip)
+    {
+        Hide();
+        StopAndReleaseVideo();
+        WindowsIntegrationService.TrimWorkingSetMemory();
+
+        if (showTip && !_hasShownTrayBalloon)
+        {
+            _hasShownTrayBalloon = true;
+            _trayIcon.ShowBalloonTip(2500, AppConfig.AppName,
+                "Приложение свернуто в системный трей и продолжает работу в фоне.",
+                Forms.ToolTipIcon.Info);
+        }
     }
 
     private void RestoreFromTray()
@@ -210,13 +417,16 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
+        ApplyBackgroundSettings();
     }
 
     private void ExitApplication()
     {
         _isExplicitExit = true;
+        StopAndReleaseVideo();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        _currentTrayIcon?.Dispose();
         System.Windows.Application.Current.Shutdown();
     }
 

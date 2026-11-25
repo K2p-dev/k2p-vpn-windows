@@ -2,83 +2,113 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:K2pVpnWindows.Views"
-        Title="Как 2 пальца" Width="440" Height="740"
+        Title="Как 2 пальца" Width="460" Height="760"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         Icon="Assets/app.ico">
 
-    <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource OutlineBrush}"
-            BorderThickness="1" CornerRadius="20">
+    <Border x:Name="RootBorder" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource OutlineBrush}"
+            BorderThickness="1" CornerRadius="20" ClipToBounds="True">
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="54"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Custom Title Bar -->
-            <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseDown">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                    <Image Source="/Assets/logo.png" Width="26" Height="26" Stretch="Uniform" Margin="0,0,10,0"/>
-                    <TextBlock Text="Как 2 пальца" FontSize="15" FontWeight="Bold"
-                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
-                    <Border Background="{StaticResource CardVariantBrush}" BorderBrush="{StaticResource OutlineBrush}"
-                            BorderThickness="1" CornerRadius="6" Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="BETA" FontSize="9" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}"/>
-                    </Border>
-                </StackPanel>
-
-                <!-- Subscription Pill -->
-                <Border x:Name="StatusBadge" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Right"
-                        VerticalAlignment="Center" Background="{StaticResource CardBrush}"
-                        BorderBrush="{StaticResource OutlineBrush}" BorderThickness="1"
-                        CornerRadius="10" Padding="9,4" Margin="0,0,8,0">
-                    <TextBlock x:Name="StatusBadgeText" Text="Активна • — дн." FontSize="10" FontWeight="SemiBold"
-                               Foreground="{StaticResource AccentHoverBrush}" TextWrapping="NoWrap"/>
-                </Border>
-
-                <!-- Window Controls -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
-                    <Button Content="—" Width="30" Height="30" Click="OnMinimizeClick"
-                            Background="Transparent" Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="0" FontSize="14" Cursor="Hand"/>
-                    <Button Content="✕" Width="30" Height="30" Click="OnCloseClick"
-                            Background="Transparent" Foreground="{StaticResource TextSecondaryBrush}"
-                            BorderThickness="0" FontSize="13" Cursor="Hand"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- Navigation Bar (Visible when authenticated) -->
-            <Border x:Name="NavBar" Grid.Row="1" Visibility="Collapsed"
-                    Background="{StaticResource CardBrush}" BorderBrush="{StaticResource OutlineBrush}"
-                    BorderThickness="1" CornerRadius="14" Padding="4" Margin="20,0,20,8">
+            <!-- Background Layer (Gradient / Static Image / Hardware Video) -->
+            <Border CornerRadius="20" ClipToBounds="True">
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Button x:Name="NavMainBtn" Grid.Column="0" Content="VPN" Click="OnNavMainClick"
-                            Style="{StaticResource PrimaryButtonStyle}" Padding="8,7" FontSize="12"/>
-                    <Button x:Name="NavTariffsBtn" Grid.Column="1" Content="Тарифы" Click="OnNavTariffsClick"
-                            Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="8,7" FontSize="12"/>
-                    <Button x:Name="NavSettingsBtn" Grid.Column="2" Content="Настройки" Click="OnNavSettingsClick"
-                            Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="8,7" FontSize="12"/>
+                    <Border x:Name="BgGradientLayer">
+                        <Border.Background>
+                            <RadialGradientBrush GradientOrigin="0.5,0.15" Center="0.5,0.15" RadiusX="0.9" RadiusY="0.7">
+                                <GradientStop Color="#260A12" Offset="0"/>
+                                <GradientStop Color="Transparent" Offset="1"/>
+                            </RadialGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <Image x:Name="BgImageLayer" Visibility="Collapsed" Stretch="UniformToFill"/>
+                    <MediaElement x:Name="BgVideoLayer" Visibility="Collapsed" LoadedBehavior="Manual"
+                                  UnloadedBehavior="Manual" IsMuted="True" ScrubbingEnabled="False"
+                                  Stretch="UniformToFill" MediaEnded="OnVideoMediaEnded"/>
+                    <Border x:Name="BgDimOverlay" Background="#000000" Opacity="0" IsHitTestVisible="False"/>
                 </Grid>
             </Border>
 
-            <!-- Active Screen Host -->
-            <Grid Grid.Row="2">
-                <views:AuthView x:Name="AuthScreen" Visibility="Visible"/>
-                <views:MainView x:Name="MainScreen" Visibility="Collapsed"/>
-                <views:TariffsView x:Name="TariffsScreen" Visibility="Collapsed"/>
-                <views:SettingsView x:Name="SettingsScreen" Visibility="Collapsed"/>
+            <!-- Foreground UI -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="52"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Custom Title Bar -->
+                <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseDown">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                        <Image Source="/Assets/logo.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,8,0"/>
+                        <TextBlock Text="Как 2 пальца" FontSize="14" FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                        <Border Background="{DynamicResource CardVariantBrush}" BorderBrush="{DynamicResource OutlineBrush}"
+                                BorderThickness="1" CornerRadius="6" Padding="5,2" Margin="7,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="v0.2" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentHoverBrush}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <Border x:Name="StatusBadge" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Right"
+                            VerticalAlignment="Center" Background="{DynamicResource CardBrush}"
+                            BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="1"
+                            CornerRadius="10" Padding="8,4" Margin="0,0,6,0">
+                        <TextBlock x:Name="StatusBadgeText" Text="Активна • — дн." FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentHoverBrush}" TextWrapping="NoWrap"/>
+                    </Border>
+
+                    <!-- Window Controls: Compact/Full toggle, Minimize, Close-to-Tray -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <Button x:Name="ModeToggleBtn" Content="◱" Width="28" Height="28" Click="OnToggleWindowModeClick"
+                                ToolTip="Переключить компактный / полный режим"
+                                Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
+                                BorderThickness="0" FontSize="14" Cursor="Hand"/>
+                        <Button Content="—" Width="28" Height="28" Click="OnMinimizeClick"
+                                Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
+                                BorderThickness="0" FontSize="13" Cursor="Hand"/>
+                        <Button Content="✕" Width="28" Height="28" Click="OnCloseClick"
+                                ToolTip="Свернуть в трей"
+                                Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}"
+                                BorderThickness="0" FontSize="13" Cursor="Hand"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 4-Tab Navigation Bar (Full Mode when authenticated) -->
+                <Border x:Name="NavBar" Grid.Row="1" Visibility="Collapsed"
+                        Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource OutlineBrush}"
+                        BorderThickness="1" CornerRadius="14" Padding="4" Margin="18,0,18,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="NavMainBtn" Grid.Column="0" Content="VPN" Click="OnNavMainClick"
+                                Style="{StaticResource PrimaryButtonStyle}" Padding="6,7" FontSize="11"/>
+                        <Button x:Name="NavTariffsBtn" Grid.Column="1" Content="Тарифы" Click="OnNavTariffsClick"
+                                Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="6,7" FontSize="11"/>
+                        <Button x:Name="NavProfileBtn" Grid.Column="2" Content="Профиль" Click="OnNavProfileClick"
+                                Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="6,7" FontSize="11"/>
+                        <Button x:Name="NavSettingsBtn" Grid.Column="3" Content="Настройки" Click="OnNavSettingsClick"
+                                Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="6,7" FontSize="11"/>
+                    </Grid>
+                </Border>
+
+                <!-- Active Screen Host -->
+                <Grid Grid.Row="2">
+                    <views:AuthView x:Name="AuthScreen" Visibility="Visible"/>
+                    <views:MainView x:Name="MainScreen" Visibility="Collapsed"/>
+                    <views:TariffsView x:Name="TariffsScreen" Visibility="Collapsed"/>
+                    <views:ProfileView x:Name="ProfileScreen" Visibility="Collapsed"/>
+                    <views:SettingsView x:Name="SettingsScreen" Visibility="Collapsed"/>
+                </Grid>
             </Grid>
         </Grid>
     </Border>

@@ -14,6 +14,33 @@ public enum VpnConnectionState
     Disconnecting
 }
 
+public enum AppThemeMode
+{
+    Dark,
+    Light,
+    System
+}
+
+public enum AppAccentMode
+{
+    Brand,
+    WindowsSystem,
+    Custom
+}
+
+public enum AppBackgroundType
+{
+    Gradient,
+    Image,
+    Video
+}
+
+public enum AppWindowMode
+{
+    Full,
+    Compact
+}
+
 public sealed class VpnServerNode
 {
     public string Id { get; init; } = string.Empty;
@@ -52,13 +79,24 @@ public sealed class VpnServerNode
 public sealed class LocalAppSettings
 {
     public string? EncryptedTokenBase64 { get; set; }
-    public string? SubscriptionUrl { get; set; }
+    public string? EncryptedSubscriptionUrlBase64 { get; set; }
     public string? SelectedServerId { get; set; }
     public string? HardwareId { get; set; }
     public VpnMode VpnMode { get; set; } = VpnMode.Tun;
     public bool BypassRussia { get; set; } = true;
+    public List<string> BypassExclusions { get; set; } = [];
     public bool AutoStartWithWindows { get; set; }
     public bool MinimizeToTray { get; set; } = true;
+    public AppWindowMode WindowMode { get; set; } = AppWindowMode.Full;
+
+    public AppThemeMode ThemeMode { get; set; } = AppThemeMode.Dark;
+    public AppAccentMode AccentMode { get; set; } = AppAccentMode.Brand;
+    public string CustomAccentHex { get; set; } = "#E11D48";
+
+    public AppBackgroundType BackgroundType { get; set; } = AppBackgroundType.Gradient;
+    public string? BackgroundMediaPath { get; set; }
+    public double BackgroundDimOpacity { get; set; } = 0.65;
+
     public DateTime? LastGeodataUpdateUtc { get; set; }
     public DateTime? LastUpdateCheckUtc { get; set; }
     public string? CachedSubscriptionBody { get; set; }

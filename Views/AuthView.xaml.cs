@@ -126,9 +126,9 @@ public partial class AuthView : System.Windows.Controls.UserControl
                     ShowError("Не удалось загрузить серверы по этой ссылке подписки.");
                     return;
                 }
+                App.Storage.SetSubscriptionUrl(input);
                 App.Storage.Update(s =>
                 {
-                    s.SubscriptionUrl = input;
                     s.CachedSubscriptionBody = sub.Value.Body;
                     s.CachedTrafficInfo = sub.Value.TrafficInfo;
                 });
@@ -148,7 +148,7 @@ public partial class AuthView : System.Windows.Controls.UserControl
 
             if (!string.IsNullOrWhiteSpace(profile.SubLink))
             {
-                App.Storage.Update(s => s.SubscriptionUrl = profile.SubLink);
+                App.Storage.SetSubscriptionUrl(profile.SubLink);
             }
             Authenticated?.Invoke();
         }

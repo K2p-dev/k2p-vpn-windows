@@ -1,0 +1,79 @@
+<UserControl x:Class="K2pVpnWindows.Views.ProfileView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20,6,20,20">
+            <Grid Margin="0,0,0,12">
+                <TextBlock Text="Профиль" FontSize="18" FontWeight="Bold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                <Button Content="Обновить" HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}"
+                        Padding="10,6" FontSize="11" Click="OnRefreshClick"/>
+            </Grid>
+
+            <!-- Account Info Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock x:Name="AccountNameText" Text="Аккаунт" FontSize="16" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    <TextBlock x:Name="AccountStatusText" Text="Статус: —" FontSize="12"
+                               Foreground="{DynamicResource AccentHoverBrush}" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="HwidText" Text="HWID: —" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Devices Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Привязанные устройства" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DevicesCountText" Text="0 / 4" FontSize="12" FontWeight="Bold"
+                                   Foreground="{DynamicResource AccentHoverBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <ItemsControl x:Name="DevicesItemsControl">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{DynamicResource CardVariantBrush}" CornerRadius="10" Padding="10,8" Margin="0,0,0,6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="Medium"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding HwidShort}" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Отвязать" Visibility="{Binding DeleteVisibility}"
+                                                Style="{StaticResource SecondaryButtonStyle}" Padding="8,4" FontSize="10"
+                                                Click="OnDeleteDeviceClick" Tag="{Binding}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock x:Name="DevicesEmptyText" Visibility="Collapsed" Text="Список устройств недоступен в режиме прямой подписки."
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Actions -->
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Веб-кабинет" Style="{StaticResource SecondaryButtonStyle}" Click="OnOpenCabinetClick"/>
+                <Button Grid.Column="2" Content="Поддержка" Style="{StaticResource SecondaryButtonStyle}" Click="OnOpenSupportClick"/>
+            </Grid>
+
+            <Button Content="Выйти из аккаунта" Style="{StaticResource PrimaryButtonStyle}"
+                    Background="#3B111C" Click="OnLogoutClick"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

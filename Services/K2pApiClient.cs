@@ -16,39 +16,64 @@ public sealed class K2pApiClient
         PropertyNameCaseInsensitive = true
     };
 
+    // Single pooled SocketsHttpHandler shared across the application lifetime
+    private static readonly SocketsHttpHandler SharedHandler = new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        PooledConnectionIdleTimeout = TimeSpan.FromSeconds(60),
+        MaxConnectionsPerServer = 8,
+        AutomaticDecompression = DecompressionMethods.All
+    };
+
+    private static readonly HttpClient ApiHttp = new(SharedHandler, disposeHandler: false)
+    {
+        BaseAddress = new Uri(AppConfig.ApiBaseUrl.TrimEnd('/') + "/"),
+        Timeout = TimeSpan.FromSeconds(25)
+    };
+
+    private static readonly HttpClient PublicHttp = new(SharedHandler, disposeHandler: false)
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
+    static K2pApiClient()
+    {
+        PublicHttp.DefaultRequestHeaders.UserAgent.ParseAdd("K2P-VPN-Windows/0.2.0");
+    }
+
     private readonly SettingsStorageService _storage;
-    private readonly HttpClient _apiHttp;
-    private readonly HttpClient _publicHttp;
 
     public event Action<string>? SessionRevoked;
 
     public K2pApiClient(SettingsStorageService storage)
     {
         _storage = storage;
+    }
 
-        _apiHttp = new HttpClient
-        {
-            BaseAddress = new Uri(AppConfig.ApiBaseUrl.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(25)
-        };
-
-        _publicHttp = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
-        _publicHttp.DefaultRequestHeaders.UserAgent.ParseAdd("K2P-VPN-Windows/0.1.0");
+    private static bool IsTrustedBackendHost(Uri? uri)
+    {
+        if (uri is null || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            return false;
+        return uri.Host.Equals("proksbro.space", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith(".proksbro.space", StringComparison.OrdinalIgnoreCase);
     }
 
     private HttpRequestMessage CreateApiRequest(HttpMethod method, string relativeUrl, object? body = null)
     {
-        var req = new HttpRequestMessage(method, relativeUrl);
-        req.Headers.Add("X-Device-HWID", _storage.HardwareId);
-        req.Headers.Add("X-Device-Name", _storage.DeviceName);
+        var fullUri = new Uri(ApiHttp.BaseAddress!, relativeUrl);
+        var req = new HttpRequestMessage(method, fullUri);
 
-        var token = _storage.GetToken();
-        if (!string.IsNullOrWhiteSpace(token))
+        // Attach Authorization and device headers ONLY to *.proksbro.space over HTTPS
+        if (IsTrustedBackendHost(fullUri))
         {
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            req.Headers.Add("X-Device-HWID", _storage.HardwareId);
+            req.Headers.Add("X-Device-Name", _storage.DeviceName);
+
+            var token = _storage.GetToken();
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
         }
 
         if (body is not null)
@@ -63,10 +88,10 @@ public sealed class K2pApiClient
     {
         try
         {
-            using var resp = await _apiHttp.SendAsync(req, ct);
+            using var resp = await ApiHttp.SendAsync(req, ct);
             var raw = await resp.Content.ReadAsStringAsync(ct);
 
-            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            if (resp.StatusCode == HttpStatusCode.Unauthorized && IsTrustedBackendHost(req.RequestUri))
             {
                 if (raw.Contains("DEVICE_REVOKED", StringComparison.OrdinalIgnoreCase))
                 {
@@ -100,20 +125,20 @@ public sealed class K2pApiClient
 
     public Task<(bool Ok, AuthResponse? Data, string? Error)> LoginAsync(string email, string password, CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Post, "api/auth/login", new LoginRequest(email, password));
+        using var req = CreateApiRequest(HttpMethod.Post, "api/auth/login", new LoginRequest(email, password));
         return SendAsync<AuthResponse>(req, ct);
     }
 
     public Task<(bool Ok, TgInitResponse? Data, string? Error)> InitTelegramAuthAsync(CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Post, "api/auth/tg/init");
+        using var req = CreateApiRequest(HttpMethod.Post, "api/auth/tg/init");
         return SendAsync<TgInitResponse>(req, ct);
     }
 
     public Task<(bool Ok, TgCheckResponse? Data, string? Error)> CheckTelegramAuthAsync(string token, CancellationToken ct = default)
     {
         var url = $"api/auth/tg/check?token={Uri.EscapeDataString(token)}";
-        var req = CreateApiRequest(HttpMethod.Get, url);
+        using var req = CreateApiRequest(HttpMethod.Get, url);
         return SendAsync<TgCheckResponse>(req, ct);
     }
 
@@ -122,7 +147,7 @@ public sealed class K2pApiClient
         try
         {
             using var req = CreateApiRequest(HttpMethod.Post, "api/auth/logout");
-            await _apiHttp.SendAsync(req);
+            using var _ = await ApiHttp.SendAsync(req);
         }
         catch
         {
@@ -136,25 +161,31 @@ public sealed class K2pApiClient
 
     public Task<(bool Ok, UserProfileResponse? Data, string? Error)> GetProfileAsync(CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Get, "api/client/profile");
+        using var req = CreateApiRequest(HttpMethod.Get, "api/client/profile");
         return SendAsync<UserProfileResponse>(req, ct);
     }
 
-    public Task<(bool Ok, ClientConfigResponse? Data, string? Error)> GetClientConfigAsync(CancellationToken ct = default)
+    public Task<(bool Ok, DevicesListResponse? Data, string? Error)> GetDevicesAsync(CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Get, "api/client/config");
-        return SendAsync<ClientConfigResponse>(req, ct);
+        using var req = CreateApiRequest(HttpMethod.Get, "api/client/devices");
+        return SendAsync<DevicesListResponse>(req, ct);
+    }
+
+    public Task<(bool Ok, AuthResponse? Data, string? Error)> DeleteDeviceAsync(string hwid, CancellationToken ct = default)
+    {
+        using var req = CreateApiRequest(HttpMethod.Delete, $"api/client/devices/{Uri.EscapeDataString(hwid)}");
+        return SendAsync<AuthResponse>(req, ct);
     }
 
     public Task<(bool Ok, PriceListResponse? Data, string? Error)> GetPricesAsync(CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Get, "api/payments/prices");
+        using var req = CreateApiRequest(HttpMethod.Get, "api/payments/prices");
         return SendAsync<PriceListResponse>(req, ct);
     }
 
     public Task<(bool Ok, CreatePaymentResponse? Data, string? Error)> CreatePaymentAsync(int months, CancellationToken ct = default)
     {
-        var req = CreateApiRequest(HttpMethod.Post, "api/payments/create", new CreatePaymentRequest(months));
+        using var req = CreateApiRequest(HttpMethod.Post, "api/payments/create", new CreatePaymentRequest(months));
         return SendAsync<CreatePaymentResponse>(req, ct);
     }
 
@@ -162,7 +193,7 @@ public sealed class K2pApiClient
     {
         try
         {
-            using var resp = await _publicHttp.GetAsync(subUrl, ct);
+            using var resp = await PublicHttp.GetAsync(subUrl, ct);
             if (!resp.IsSuccessStatusCode) return null;
 
             var body = await resp.Content.ReadAsStringAsync(ct);
@@ -186,7 +217,7 @@ public sealed class K2pApiClient
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, AppConfig.GithubReleasesApi);
             req.Headers.Accept.ParseAdd("application/vnd.github+json");
-            using var resp = await _publicHttp.SendAsync(req, ct);
+            using var resp = await PublicHttp.SendAsync(req, ct);
             if (!resp.IsSuccessStatusCode) return null;
 
             var releases = await resp.Content.ReadFromJsonAsync<List<GithubReleaseModel>>(JsonOptions, ct);
@@ -202,7 +233,7 @@ public sealed class K2pApiClient
     {
         try
         {
-            using var resp = await _publicHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var resp = await PublicHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!resp.IsSuccessStatusCode) return false;
 
             var dir = Path.GetDirectoryName(destinationPath);

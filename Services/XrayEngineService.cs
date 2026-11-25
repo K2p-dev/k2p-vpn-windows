@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
@@ -26,7 +27,6 @@ public sealed class XrayEngineService : IDisposable
     public string? LastError { get; private set; }
 
     public event Action<VpnConnectionState>? StateChanged;
-    public event Action<string>? LogReceived;
 
     public XrayEngineService(SettingsStorageService storage)
     {
@@ -37,21 +37,30 @@ public sealed class XrayEngineService : IDisposable
     {
         await StopAsync();
 
-        var xrayExe = Path.Combine(AppConfig.CoreDir, "xray.exe");
-        if (!File.Exists(xrayExe))
+        var coreFullDir = Path.GetFullPath(AppConfig.CoreDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var xrayExe = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "xray.exe"));
+
+        // Verify binary resides strictly inside trusted Core directory
+        if (!xrayExe.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(xrayExe))
         {
-            LastError = "Не найден Core/xray.exe";
+            LastError = "Не найден доверенный бинарник Core/xray.exe";
             return false;
         }
 
         if (mode == VpnMode.Tun)
         {
-            var wintunDll = Path.Combine(AppConfig.CoreDir, "wintun.dll");
-            if (!File.Exists(wintunDll))
+            var wintunDll = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "wintun.dll"));
+            if (!wintunDll.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(wintunDll))
             {
-                LastError = "Не найден Core/wintun.dll для TUN-режима";
+                LastError = "Не найден доверенный Core/wintun.dll для TUN-режима";
                 return false;
             }
+        }
+
+        if (string.IsNullOrWhiteSpace(node.Host) || node.Port is < 1 or > 65535)
+        {
+            LastError = "Некорректные параметры сервера";
+            return false;
         }
 
         State = VpnConnectionState.Connecting;
@@ -63,24 +72,28 @@ public sealed class XrayEngineService : IDisposable
             Directory.CreateDirectory(AppConfig.AppDataDir);
             var assetDir = ResolveGeodataDirectory();
             var hasGeodata = HasValidGeodata(assetDir);
-            var configJson = BuildXrayConfig(node, mode, bypassRussia && hasGeodata);
+            var exclusions = _storage.Current.BypassExclusions;
+            var configJson = BuildXrayConfig(node, mode, bypassRussia && hasGeodata, exclusions);
             await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Encoding.UTF8);
 
+            // Command-injection-safe ProcessStartInfo using ArgumentList
             var psi = new ProcessStartInfo
             {
                 FileName = xrayExe,
-                Arguments = $"run -c \"{AppConfig.XrayRuntimeConfigPath}\"",
                 WorkingDirectory = AppConfig.CoreDir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            psi.ArgumentList.Add("run");
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add(AppConfig.XrayRuntimeConfigPath);
             psi.Environment["XRAY_LOCATION_ASSET"] = assetDir;
 
             _xrayProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            _xrayProcess.OutputDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _xrayProcess.ErrorDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
+            _xrayProcess.OutputDataReceived += (_, _) => { };
+            _xrayProcess.ErrorDataReceived += (_, _) => { };
             _xrayProcess.Exited += (_, _) =>
             {
                 if (State is VpnConnectionState.Connected or VpnConnectionState.Connecting)
@@ -99,6 +112,15 @@ public sealed class XrayEngineService : IDisposable
                 State = VpnConnectionState.Disconnected;
                 StateChanged?.Invoke(State);
                 return false;
+            }
+
+            try
+            {
+                _xrayProcess.PriorityClass = ProcessPriorityClass.AboveNormal;
+            }
+            catch
+            {
+                // Ignore if OS restricts priority adjustment
             }
 
             _xrayProcess.BeginOutputReadLine();
@@ -251,7 +273,7 @@ public sealed class XrayEngineService : IDisposable
                File.Exists(geosite) && new FileInfo(geosite).Length > 50 * 1024;
     }
 
-    public static string BuildXrayConfig(VpnServerNode node, VpnMode mode, bool bypassRussia)
+    public static string BuildXrayConfig(VpnServerNode node, VpnMode mode, bool bypassRussia, IReadOnlyList<string>? exclusions = null)
     {
         var root = new JsonObject
         {
@@ -286,6 +308,7 @@ public sealed class XrayEngineService : IDisposable
         }
         else
         {
+            // Strictly bind to 127.0.0.1 (never 0.0.0.0)
             inbounds.Add(new JsonObject
             {
                 ["tag"] = "socks-in",
@@ -326,6 +349,32 @@ public sealed class XrayEngineService : IDisposable
         };
 
         var rules = new JsonArray();
+
+        // User-defined exclusions (domains and IPs/CIDRs)
+        if (exclusions is { Count: > 0 })
+        {
+            var customIps = new JsonArray();
+            var customDomains = new JsonArray();
+            foreach (var raw in exclusions)
+            {
+                var item = raw.Trim();
+                if (string.IsNullOrWhiteSpace(item)) continue;
+                var ipPart = item.Split('/')[0];
+                if (IPAddress.TryParse(ipPart, out _))
+                    customIps.Add(item);
+                else
+                    customDomains.Add(item.StartsWith("domain:", StringComparison.OrdinalIgnoreCase) ? item : $"domain:{item}");
+            }
+            if (customIps.Count > 0)
+            {
+                rules.Add(new JsonObject { ["type"] = "field", ["ip"] = customIps, ["outboundTag"] = "direct" });
+            }
+            if (customDomains.Count > 0)
+            {
+                rules.Add(new JsonObject { ["type"] = "field", ["domain"] = customDomains, ["outboundTag"] = "direct" });
+            }
+        }
+
         if (bypassRussia)
         {
             rules.Add(new JsonObject

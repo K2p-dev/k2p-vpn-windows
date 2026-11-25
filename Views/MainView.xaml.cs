@@ -35,24 +35,51 @@ public partial class MainView : System.Windows.Controls.UserControl
 
         _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _uiTimer.Tick += OnUiTimerTick;
-        _uiTimer.Start();
+
+        // Pause/stop UI timer when hidden in tray to save CPU
+        IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+            {
+                OnUiTimerTick(null, EventArgs.Empty);
+                _uiTimer.Start();
+            }
+            else
+            {
+                _uiTimer.Stop();
+            }
+        };
 
         App.XrayEngine.StateChanged += state => Dispatcher.Invoke(() => UpdateConnectionVisuals(state));
         UpdateModeButtons();
         UpdateConnectionVisuals(App.XrayEngine.State);
     }
 
+    public void SetCompactMode(bool isCompact)
+    {
+        PowerContainer.Height = isCompact ? 156 : 210;
+        ConnectBtn.Width = isCompact ? 132 : 160;
+        ConnectBtn.Height = isCompact ? 132 : 160;
+        PulseRing.Width = isCompact ? 154 : 188;
+        PulseRing.Height = isCompact ? 154 : 188;
+
+        ModeSelectorCard.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        TrafficInfoText.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        CompactBypassCard.Visibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
+        CompactBypassSwitch.IsChecked = App.Storage.Current.BypassRussia;
+    }
+
     public async Task LoadNodesAsync(string? subUrl = null)
     {
-        var url = subUrl ?? App.Storage.Current.SubscriptionUrl;
+        var url = subUrl ?? App.Storage.GetSubscriptionUrl();
         if (!string.IsNullOrWhiteSpace(url))
         {
             var fetched = await App.ApiClient.FetchSubscriptionAsync(url);
             if (fetched is not null)
             {
+                App.Storage.SetSubscriptionUrl(url);
                 App.Storage.Update(s =>
                 {
-                    s.SubscriptionUrl = url;
                     s.CachedSubscriptionBody = fetched.Value.Body;
                     s.CachedTrafficInfo = fetched.Value.TrafficInfo;
                 });
@@ -87,6 +114,13 @@ public partial class MainView : System.Windows.Controls.UserControl
 
     public Task ToggleConnectionAsync() => HandleConnectToggleAsync();
 
+    public async Task ReconnectAsync()
+    {
+        if (_selectedNode is null) return;
+        var s = App.Storage.Current;
+        await App.XrayEngine.StartAsync(_selectedNode, s.VpnMode, s.BypassRussia);
+    }
+
     private async void OnConnectClick(object sender, RoutedEventArgs e) => await HandleConnectToggleAsync();
 
     private async Task HandleConnectToggleAsync()
@@ -118,6 +152,16 @@ public partial class MainView : System.Windows.Controls.UserControl
         finally
         {
             ConnectBtn.IsEnabled = true;
+        }
+    }
+
+    private async void OnCompactBypassToggle(object sender, RoutedEventArgs e)
+    {
+        var enabled = CompactBypassSwitch.IsChecked == true;
+        App.Storage.Update(s => s.BypassRussia = enabled);
+        if (App.XrayEngine.State == VpnConnectionState.Connected && _selectedNode is not null)
+        {
+            await App.XrayEngine.StartAsync(_selectedNode, App.Storage.Current.VpnMode, enabled);
         }
     }
 
