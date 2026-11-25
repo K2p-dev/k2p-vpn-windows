@@ -244,7 +244,7 @@ public sealed class XrayEngineService : IDisposable
             ]);
         }
 
-        // Step 3: Write hev-socks5-tunnel YAML config with dynamic socksPort and mapdns
+        // Step 3: Write hev-socks5-tunnel YAML config (no mapdns so real IPs work with geoip:ru)
         var yaml = $"""
             tunnel:
               name: k2p-tun
@@ -255,12 +255,6 @@ public sealed class XrayEngineService : IDisposable
               port: {socksPort}
               address: 127.0.0.1
               udp: 'udp'
-            mapdns:
-              address: 198.18.0.2
-              port: 53
-              network: 198.18.0.0
-              netmask: 255.254.0.0
-              cache-size: 10000
             """;
         await File.WriteAllTextAsync(AppConfig.HevTunConfigPath, yaml, Utf8NoBom);
         AppLogger.Log("TUN", $"hev-tun.yml:\n{yaml}");
@@ -692,12 +686,31 @@ public sealed class XrayEngineService : IDisposable
         string? physicalLocalIp = null,
         IReadOnlyList<string>? exclusions = null)
     {
+        var dnsServers = new JsonArray();
+        if (bypassRussia)
+        {
+            dnsServers.Add(new JsonObject
+            {
+                ["address"] = "77.88.8.8",
+                ["domains"] = new JsonArray(
+                    "geosite:ru-available-only-inside",
+                    "domain:ru",
+                    "domain:su",
+                    "domain:xn--p1ai"
+                ),
+                ["skipFallback"] = true
+            });
+        }
+        dnsServers.Add("1.1.1.1");
+        dnsServers.Add("8.8.8.8");
+
         var root = new JsonObject
         {
             ["log"] = new JsonObject { ["loglevel"] = "info" },
             ["dns"] = new JsonObject
             {
-                ["servers"] = new JsonArray("1.1.1.1", "8.8.8.8")
+                ["tag"] = "dns-module",
+                ["servers"] = dnsServers
             }
         };
 
@@ -755,17 +768,36 @@ public sealed class XrayEngineService : IDisposable
             new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
         };
 
-        var rules = new JsonArray
+        var rules = new JsonArray();
+
+        if (bypassRussia)
         {
-            // Route DNS port 53 through Xray's built-in dns-out handler
-            new JsonObject
+            // Local Russian DNS (77.88.8.8) from dns-module goes direct
+            rules.Add(new JsonObject
             {
                 ["type"] = "field",
-                ["port"] = 53,
-                ["network"] = "udp,tcp",
-                ["outboundTag"] = "dns-out"
-            }
-        };
+                ["inboundTag"] = new JsonArray("dns-module"),
+                ["ip"] = new JsonArray("77.88.8.8/32"),
+                ["outboundTag"] = "direct"
+            });
+        }
+
+        // MUST be before port:53 -> dns-out to prevent Xray DNS infinite loop
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["inboundTag"] = new JsonArray("dns-module"),
+            ["outboundTag"] = "proxy"
+        });
+
+        // Route client DNS port 53 through Xray's built-in dns-out handler
+        rules.Add(new JsonObject
+        {
+            ["type"] = "field",
+            ["port"] = 53,
+            ["network"] = "udp,tcp",
+            ["outboundTag"] = "dns-out"
+        });
 
         if (exclusions is { Count: > 0 })
         {
