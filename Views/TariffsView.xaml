@@ -20,7 +20,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
                         <TextBlock x:Name="SubStatusTitle" Text="Подписка активна" FontSize="15" FontWeight="Bold"
-                                   Foreground="{DynamicResource AccentBrush}" TextTrimming="CharacterEllipsis"/>
+                                   Foreground="{DynamicResource AccentTextOnPageBrush}" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="SubStatusSubtitle" Text="Осталось: — дн." FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
                     </StackPanel>
@@ -57,7 +57,7 @@
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
                                         <TextBlock Text="{Binding PriceText}" FontSize="17" FontWeight="Bold"
-                                                   Foreground="{DynamicResource AccentBrush}"/>
+                                                   Foreground="{DynamicResource AccentTextOnPageBrush}"/>
                                         <TextBlock Text="{Binding OldPriceText}" Visibility="{Binding OldPriceVisibility}"
                                                    FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                                    TextDecorations="Strikethrough" VerticalAlignment="Bottom" Margin="8,0,0,2"/>

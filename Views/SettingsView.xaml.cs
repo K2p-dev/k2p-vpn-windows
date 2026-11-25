@@ -49,34 +49,37 @@ public partial class SettingsView : System.Windows.Controls.UserControl
 
     private void UpdateAppearanceButtons(LocalAppSettings s)
     {
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var cardVar = (WpfBrush)FindResource("CardVariantBrush");
-        var textPrim = (WpfBrush)FindResource("TextPrimaryBrush");
+        SetOptionBtnState(ThemeDarkBtn, s.ThemeMode == AppThemeMode.Dark);
+        SetOptionBtnState(ThemeLightBtn, s.ThemeMode == AppThemeMode.Light);
+        SetOptionBtnState(ThemeSystemBtn, s.ThemeMode == AppThemeMode.System);
 
-        ThemeDarkBtn.Background = s.ThemeMode == AppThemeMode.Dark ? accent : cardVar;
-        ThemeDarkBtn.Foreground = s.ThemeMode == AppThemeMode.Dark ? WpfBrushes.White : textPrim;
-        ThemeLightBtn.Background = s.ThemeMode == AppThemeMode.Light ? accent : cardVar;
-        ThemeLightBtn.Foreground = s.ThemeMode == AppThemeMode.Light ? WpfBrushes.White : textPrim;
-        ThemeSystemBtn.Background = s.ThemeMode == AppThemeMode.System ? accent : cardVar;
-        ThemeSystemBtn.Foreground = s.ThemeMode == AppThemeMode.System ? WpfBrushes.White : textPrim;
-
-        AccentBrandBtn.Background = s.AccentMode == AppAccentMode.Brand ? accent : cardVar;
-        AccentBrandBtn.Foreground = s.AccentMode == AppAccentMode.Brand ? WpfBrushes.White : textPrim;
-        AccentWinBtn.Background = s.AccentMode == AppAccentMode.WindowsSystem ? accent : cardVar;
-        AccentWinBtn.Foreground = s.AccentMode == AppAccentMode.WindowsSystem ? WpfBrushes.White : textPrim;
-        AccentCustomBtn.Background = s.AccentMode == AppAccentMode.Custom ? accent : cardVar;
-        AccentCustomBtn.Foreground = s.AccentMode == AppAccentMode.Custom ? WpfBrushes.White : textPrim;
+        SetOptionBtnState(AccentBrandBtn, s.AccentMode == AppAccentMode.Brand);
+        SetOptionBtnState(AccentWinBtn, s.AccentMode == AppAccentMode.WindowsSystem);
+        SetOptionBtnState(AccentCustomBtn, s.AccentMode == AppAccentMode.Custom);
 
         CustomHexPanel.Visibility = s.AccentMode == AppAccentMode.Custom ? Visibility.Visible : Visibility.Collapsed;
 
-        BgGradientBtn.Background = s.BackgroundType == AppBackgroundType.Gradient ? accent : cardVar;
-        BgGradientBtn.Foreground = s.BackgroundType == AppBackgroundType.Gradient ? WpfBrushes.White : textPrim;
-        BgImageBtn.Background = s.BackgroundType == AppBackgroundType.Image ? accent : cardVar;
-        BgImageBtn.Foreground = s.BackgroundType == AppBackgroundType.Image ? WpfBrushes.White : textPrim;
-        BgVideoBtn.Background = s.BackgroundType == AppBackgroundType.Video ? accent : cardVar;
-        BgVideoBtn.Foreground = s.BackgroundType == AppBackgroundType.Video ? WpfBrushes.White : textPrim;
+        SetOptionBtnState(BgGradientBtn, s.BackgroundType == AppBackgroundType.Gradient);
+        SetOptionBtnState(BgImageBtn, s.BackgroundType == AppBackgroundType.Image);
+        SetOptionBtnState(BgVideoBtn, s.BackgroundType == AppBackgroundType.Video);
 
         MediaBgControls.Visibility = s.BackgroundType != AppBackgroundType.Gradient ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void SetOptionBtnState(System.Windows.Controls.Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "AccentBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "AccentForegroundBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "AccentButtonBorderBrush");
+        }
+        else
+        {
+            btn.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "CardVariantBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "TextPrimaryBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "OutlineBrush");
+        }
     }
 
     private async void OnBypassRussiaToggle(object sender, RoutedEventArgs e)

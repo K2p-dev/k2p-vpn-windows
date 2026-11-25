@@ -16,7 +16,7 @@
                     <TextBlock x:Name="AccountNameText" Text="Аккаунт" FontSize="16" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <TextBlock x:Name="AccountStatusText" Text="Статус: —" FontSize="12"
-                               Foreground="{DynamicResource AccentHoverBrush}" Margin="0,4,0,0"/>
+                               Foreground="{DynamicResource AccentTextOnPageBrush}" Margin="0,4,0,0"/>
                     <TextBlock x:Name="HwidText" Text="HWID: —" FontSize="11"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0"/>
                 </StackPanel>
@@ -29,7 +29,7 @@
                         <TextBlock Text="Привязанные устройства" FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="DevicesCountText" Text="0 / 4" FontSize="12" FontWeight="Bold"
-                                   Foreground="{DynamicResource AccentHoverBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource AccentTextOnPageBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                     </Grid>
 
                     <ItemsControl x:Name="DevicesItemsControl">

@@ -192,31 +192,46 @@ public partial class MainView : System.Windows.Controls.UserControl
         var icon = ConnectBtn.Template?.FindName("PowerIcon", ConnectBtn) as TextBlock;
         var glow = ConnectBtn.Template?.FindName("GlowEffect", ConnectBtn) as DropShadowEffect;
 
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var outline = (WpfBrush)FindResource("OutlineBrush");
-        var textPrim = (WpfBrush)FindResource("TextPrimaryBrush");
-        var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
-
         switch (state)
         {
             case VpnConnectionState.Connected:
-                if (outer is not null) { outer.Stroke = accent; outer.Fill = (WpfBrush)FindResource("CardVariantBrush"); }
-                if (icon is not null) icon.Foreground = accent;
-                if (label is not null) { label.Text = "ПОДКЛЮЧЕНО"; label.Foreground = accent; }
+                if (outer is not null)
+                {
+                    outer.SetResourceReference(Shape.StrokeProperty, "AccentBrush");
+                    outer.SetResourceReference(Shape.FillProperty, "CardVariantBrush");
+                }
+                icon?.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextOnPageBrush");
+                if (label is not null)
+                {
+                    label.Text = "ПОДКЛЮЧЕНО";
+                    label.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextOnPageBrush");
+                }
                 if (glow is not null) { glow.BlurRadius = 28; glow.Opacity = 0.75; }
                 StartPulseAnimation();
                 break;
 
             case VpnConnectionState.Connecting:
-                if (outer is not null) outer.Stroke = (WpfBrush)FindResource("WarningBrush");
-                if (label is not null) { label.Text = "ПОДКЛЮЧЕНИЕ..."; label.Foreground = (WpfBrush)FindResource("WarningBrush"); }
+                outer?.SetResourceReference(Shape.StrokeProperty, "WarningBrush");
+                if (label is not null)
+                {
+                    label.Text = "ПОДКЛЮЧЕНИЕ...";
+                    label.SetResourceReference(TextBlock.ForegroundProperty, "WarningBrush");
+                }
                 StopPulseAnimation();
                 break;
 
             default:
-                if (outer is not null) { outer.Stroke = outline; outer.Fill = (WpfBrush)FindResource("CardBrush"); }
-                if (icon is not null) icon.Foreground = textPrim;
-                if (label is not null) { label.Text = "ПОДКЛЮЧИТЬ"; label.Foreground = textSec; }
+                if (outer is not null)
+                {
+                    outer.SetResourceReference(Shape.StrokeProperty, "OutlineBrush");
+                    outer.SetResourceReference(Shape.FillProperty, "CardBrush");
+                }
+                icon?.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
+                if (label is not null)
+                {
+                    label.Text = "ПОДКЛЮЧИТЬ";
+                    label.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                }
                 if (glow is not null) { glow.BlurRadius = 0; glow.Opacity = 0; }
                 StopPulseAnimation();
                 break;
@@ -276,13 +291,25 @@ public partial class MainView : System.Windows.Controls.UserControl
     private void UpdateModeButtons()
     {
         var isTun = App.Storage.Current.VpnMode == VpnMode.Tun;
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
+        SetModeBtnState(TunModeBtn, isTun);
+        SetModeBtnState(ProxyModeBtn, !isTun);
+    }
 
-        TunModeBtn.Background = isTun ? accent : WpfBrushes.Transparent;
-        TunModeBtn.Foreground = isTun ? WpfBrushes.White : textSec;
-        ProxyModeBtn.Background = !isTun ? accent : WpfBrushes.Transparent;
-        ProxyModeBtn.Foreground = !isTun ? WpfBrushes.White : textSec;
+    private static void SetModeBtnState(System.Windows.Controls.Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "AccentBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "AccentForegroundBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "AccentButtonBorderBrush");
+            btn.BorderThickness = new Thickness(1);
+        }
+        else
+        {
+            btn.Background = WpfBrushes.Transparent;
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "TextSecondaryBrush");
+            btn.BorderThickness = new Thickness(0);
+        }
     }
 
     private void OnToggleServerListClick(object sender, MouseButtonEventArgs e)

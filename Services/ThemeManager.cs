@@ -11,24 +11,60 @@ public static class ThemeManager
 {
     public static void Apply(LocalAppSettings settings)
     {
+        var customColor = TryParseColor(settings.CustomAccentHex, WpfColor.FromRgb(0xE1, 0x1D, 0x48));
+        ApplyTheme(settings.ThemeMode, settings.AccentMode, customColor);
+    }
+
+    public static void ApplyTheme(AppThemeMode themeMode, AppAccentMode accentMode, WpfColor customColor)
+    {
         var app = System.Windows.Application.Current;
         if (app is null) return;
 
-        var isLight = settings.ThemeMode switch
+        var isLight = themeMode switch
         {
             AppThemeMode.Light => true,
             AppThemeMode.System => WindowsIntegrationService.IsWindowsLightTheme(),
             _ => false
         };
 
-        var accent = settings.AccentMode switch
+        var accent = accentMode switch
         {
             AppAccentMode.WindowsSystem => WindowsIntegrationService.GetWindowsAccentColor(),
-            AppAccentMode.Custom => TryParseColor(settings.CustomAccentHex, WpfColor.FromRgb(0xE1, 0x1D, 0x48)),
+            AppAccentMode.Custom => customColor,
             _ => WpfColor.FromRgb(0xE1, 0x1D, 0x48)
         };
 
-        var accentHover = Lighten(accent, 0.16);
+        // Relative luminance L = 0.299*R + 0.587*G + 0.114*B (0..255)
+        var luminance = 0.299 * accent.R + 0.587 * accent.G + 0.114 * accent.B;
+
+        // 1. Text/icons inside accent buttons
+        var accentForeground = luminance >= 150.0
+            ? WpfColor.FromRgb(0x09, 0x09, 0x0B)
+            : WpfColor.FromRgb(0xFF, 0xFF, 0xFF);
+
+        // 2. Accent text on page background (version, subscription status, tariff prices)
+        WpfColor accentTextOnPage;
+        if (isLight)
+        {
+            accentTextOnPage = luminance > 180.0
+                ? WpfColor.FromRgb(0x18, 0x18, 0x1B)
+                : accent;
+        }
+        else
+        {
+            accentTextOnPage = luminance < 65.0
+                ? WpfColor.FromRgb(0xF4, 0xF4, 0xF5)
+                : accent;
+        }
+
+        // 3. Subtle contrasting border on accent buttons when accent blends with background
+        var accentButtonBorder = WpfColor.FromArgb(0x00, 0x00, 0x00, 0x00);
+        if (!isLight && luminance < 65.0)
+            accentButtonBorder = WpfColor.FromRgb(0x52, 0x52, 0x5B);
+        else if (isLight && luminance > 210.0)
+            accentButtonBorder = WpfColor.FromRgb(0xD4, 0xD4, 0xD8);
+
+        var accentHover = luminance >= 220.0 ? Darken(accent, 0.10) : Lighten(accent, 0.16);
         var accentDark = Darken(accent, 0.35);
 
         if (isLight)
@@ -89,6 +125,9 @@ public static class ThemeManager
         SetBrush(app, "AccentBrush", accent);
         SetBrush(app, "AccentHoverBrush", accentHover);
         SetBrush(app, "AccentDarkBrush", accentDark);
+        SetBrush(app, "AccentForegroundBrush", accentForeground);
+        SetBrush(app, "AccentTextOnPageBrush", accentTextOnPage);
+        SetBrush(app, "AccentButtonBorderBrush", accentButtonBorder);
         app.Resources["AccentColor"] = accent;
     }
 

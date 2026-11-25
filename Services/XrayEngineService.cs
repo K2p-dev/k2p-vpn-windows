@@ -13,6 +13,7 @@ namespace K2pVpnWindows.Services;
 
 public sealed class XrayEngineService : IDisposable
 {
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private readonly SettingsStorageService _storage;
     private readonly object _logLock = new();
     private readonly List<string> _recentLogs = [];
@@ -89,7 +90,7 @@ public sealed class XrayEngineService : IDisposable
 
             // Both modes run xray.exe with local 127.0.0.1 SOCKS5 (10808) + HTTP (10809)
             var configJson = BuildXrayConfig(node, bypassRussia && hasGeodata, exclusions);
-            await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Encoding.UTF8);
+            await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
 
             var psi = new ProcessStartInfo
             {
@@ -200,7 +201,7 @@ public sealed class XrayEngineService : IDisposable
               address: 127.0.0.1
               udp: 'udp'
             """;
-        await File.WriteAllTextAsync(AppConfig.HevTunConfigPath, yaml, Encoding.UTF8);
+        await File.WriteAllTextAsync(AppConfig.HevTunConfigPath, yaml, Utf8NoBom);
 
         var tunPsi = new ProcessStartInfo
         {
@@ -558,7 +559,9 @@ public sealed class XrayEngineService : IDisposable
         };
         root["inbounds"] = inbounds;
 
-        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase)
+        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
+                            node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
+                            node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
             ? BuildHysteria2Outbound(node)
             : BuildVlessOutbound(node);
 

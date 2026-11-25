@@ -33,13 +33,25 @@ public partial class AuthView : System.Windows.Controls.UserControl
         LoginPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         RegisterPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
 
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
+        SetAuthTabState(TabLoginBtn, index == 0);
+        SetAuthTabState(TabRegisterBtn, index == 1);
+    }
 
-        TabLoginBtn.Background = index == 0 ? accent : WpfBrushes.Transparent;
-        TabLoginBtn.Foreground = index == 0 ? WpfBrushes.White : textSec;
-        TabRegisterBtn.Background = index == 1 ? accent : WpfBrushes.Transparent;
-        TabRegisterBtn.Foreground = index == 1 ? WpfBrushes.White : textSec;
+    private static void SetAuthTabState(System.Windows.Controls.Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "AccentBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "AccentForegroundBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "AccentButtonBorderBrush");
+            btn.BorderThickness = new Thickness(1);
+        }
+        else
+        {
+            btn.Background = WpfBrushes.Transparent;
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "TextSecondaryBrush");
+            btn.BorderThickness = new Thickness(0);
+        }
     }
 
     private void OnLoginPasswordChanged(object sender, RoutedEventArgs e)

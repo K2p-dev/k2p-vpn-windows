@@ -182,17 +182,27 @@ public partial class MainWindow : Window
         ProfileScreen.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsScreen.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
 
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
+        SetNavTabState(NavMainBtn, index == 0);
+        SetNavTabState(NavTariffsBtn, index == 1);
+        SetNavTabState(NavProfileBtn, index == 2);
+        SetNavTabState(NavSettingsBtn, index == 3);
+    }
 
-        NavMainBtn.Background = index == 0 ? accent : WpfBrushes.Transparent;
-        NavMainBtn.Foreground = index == 0 ? WpfBrushes.White : textSec;
-        NavTariffsBtn.Background = index == 1 ? accent : WpfBrushes.Transparent;
-        NavTariffsBtn.Foreground = index == 1 ? WpfBrushes.White : textSec;
-        NavProfileBtn.Background = index == 2 ? accent : WpfBrushes.Transparent;
-        NavProfileBtn.Foreground = index == 2 ? WpfBrushes.White : textSec;
-        NavSettingsBtn.Background = index == 3 ? accent : WpfBrushes.Transparent;
-        NavSettingsBtn.Foreground = index == 3 ? WpfBrushes.White : textSec;
+    private static void SetNavTabState(System.Windows.Controls.Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "AccentBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "AccentForegroundBrush");
+            btn.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "AccentButtonBorderBrush");
+            btn.BorderThickness = new Thickness(1);
+        }
+        else
+        {
+            btn.Background = WpfBrushes.Transparent;
+            btn.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "TextSecondaryBrush");
+            btn.BorderThickness = new Thickness(0);
+        }
     }
 
     private void ApplyWindowMode(AppWindowMode mode)

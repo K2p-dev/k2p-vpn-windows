@@ -124,7 +124,7 @@ public sealed class SettingsStorageService
         {
             Directory.CreateDirectory(AppConfig.AppDataDir);
             var json = JsonSerializer.Serialize(_settings, JsonOptions);
-            File.WriteAllText(AppConfig.ConfigFilePath, json, Encoding.UTF8);
+            File.WriteAllText(AppConfig.ConfigFilePath, json, new UTF8Encoding(false));
         }
         catch
         {
