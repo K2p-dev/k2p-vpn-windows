@@ -61,9 +61,16 @@ jobs:
           TAG="${{ env.RELEASE_TAG }}"
           gh release delete "$TAG" --yes || true
           # Удаляем зависшие черновики без тега, если прошлый аплоад упал по 500
-          gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.draft == true) | .id' | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/releases/{}" || true
+          (gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.draft == true) | .id' | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/releases/{}") || true
 
-          gh release create "$TAG" --title "Как 2 пальца (K2P VPN) $TAG" --notes "Автоматическая сборка релиза $TAG"
+          for attempt in 1 2 3 4 5; do
+            if gh release create "$TAG" --title "Как 2 пальца (K2P VPN) $TAG" --notes "Автоматическая сборка релиза $TAG"; then
+              break
+            fi
+            echo "gh release create failed (attempt $attempt), retrying in 15s..."
+            sleep 15
+            [ "$attempt" -eq 5 ] && exit 1
+          done
 
           for f in release_assets/*.zip; do
             echo "Uploading $f..."
