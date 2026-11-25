@@ -159,7 +159,7 @@
                 <StackPanel>
                     <TextBlock Text="Версия приложения" FontSize="14" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBlock x:Name="VersionText" Text="v0.2.3 BETA" FontSize="12"
+                    <TextBlock x:Name="VersionText" Text="v0.2.4 BETA" FontSize="12"
                                Foreground="{DynamicResource AccentTextOnPageBrush}" Margin="0,2,0,10"/>
                     <Button x:Name="CheckUpdatesBtn" Content="Проверить обновления на GitHub"
                             Style="{StaticResource SecondaryButtonStyle}" Click="OnCheckUpdatesClick"/>

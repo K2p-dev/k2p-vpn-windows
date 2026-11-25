@@ -42,6 +42,7 @@ public sealed class XrayEngineService : IDisposable
     public async Task<bool> StartAsync(VpnServerNode node, VpnMode mode, bool bypassRussia)
     {
         await StopAsync();
+        KillStaleCoreProcesses();
 
         var validationError = ValidateNode(node);
         if (validationError is not null)
@@ -88,8 +89,23 @@ public sealed class XrayEngineService : IDisposable
             var hasGeodata = HasValidGeodata(assetDir);
             var exclusions = _storage.Current.BypassExclusions;
 
-            // Both modes run xray.exe with local 127.0.0.1 SOCKS5 (10808) + HTTP (10809)
-            var configJson = BuildXrayConfig(node, bypassRussia && hasGeodata, exclusions);
+            // Detect active physical network interface BEFORE starting TUN
+            var physicalNet = GetActivePhysicalInterfaceInfo();
+
+            // Allocate two distinct free loopback ports dynamically
+            var socksPort = GetFreeLoopbackPort();
+            var httpPort = GetFreeLoopbackPort();
+            if (httpPort == socksPort)
+                httpPort = GetFreeLoopbackPort();
+
+            var configJson = BuildXrayConfig(
+                node,
+                bypassRussia && hasGeodata,
+                socksPort,
+                httpPort,
+                mode == VpnMode.Tun ? physicalNet?.LocalIp : null,
+                exclusions);
+
             await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
 
             var psi = new ProcessStartInfo
@@ -133,7 +149,8 @@ public sealed class XrayEngineService : IDisposable
             _xrayProcess.BeginOutputReadLine();
             _xrayProcess.BeginErrorReadLine();
 
-            await Task.Delay(750);
+            // Wait until Xray is listening on 127.0.0.1:{socksPort}
+            var listening = await WaitForLocalPortAsync(socksPort, TimeSpan.FromSeconds(4));
             if (_xrayProcess.HasExited)
             {
                 var errDetails = GetRecentErrorSummary();
@@ -144,14 +161,20 @@ public sealed class XrayEngineService : IDisposable
                 StateChanged?.Invoke(State);
                 return false;
             }
+            if (!listening)
+            {
+                LastError = $"Xray не открыл локальный порт {socksPort}.";
+                await StopAsync();
+                return false;
+            }
 
             if (mode == VpnMode.SystemProxy)
             {
-                SystemProxyService.EnableSystemProxy("127.0.0.1", 10809);
+                SystemProxyService.EnableSystemProxy("127.0.0.1", httpPort);
             }
             else if (hevExe is not null)
             {
-                var tunOk = await StartTunBridgeAsync(hevExe, node.Host);
+                var tunOk = await StartTunBridgeAsync(hevExe, node.Host, socksPort, physicalNet);
                 if (!tunOk)
                 {
                     await StopAsync();
@@ -178,28 +201,36 @@ public sealed class XrayEngineService : IDisposable
         }
     }
 
-    private async Task<bool> StartTunBridgeAsync(string hevExe, string serverHost)
+    private async Task<bool> StartTunBridgeAsync(string hevExe, string serverHost, int socksPort, PhysicalNetInfo? physicalNet)
     {
-        // 1. Add host route to VPN server via default gateway to prevent routing loop
-        var gateway = GetDefaultGatewayIpv4();
+        // 1. Resolve VPN server IPv4 BEFORE changing default routes and add host route via physical gateway
         var serverIp = await ResolveIpv4Async(serverHost);
-        if (!string.IsNullOrWhiteSpace(serverIp) && !string.IsNullOrWhiteSpace(gateway))
+        if (!string.IsNullOrWhiteSpace(serverIp) && physicalNet is not null)
         {
             _bypassServerIp = serverIp;
-            await RunNetToolAsync("route", ["add", serverIp, "mask", "255.255.255.255", gateway, "metric", "5"]);
+            await RunNetToolAsync("route", [
+                "add", serverIp, "mask", "255.255.255.255",
+                physicalNet.GatewayIp, "metric", "1", "if", physicalNet.IfIndex.ToString()
+            ]);
         }
 
-        // 2. Write hev-socks5-tunnel YAML config
-        var yaml = """
+        // 2. Write hev-socks5-tunnel YAML config with dynamic socksPort and mapdns
+        var yaml = $"""
             tunnel:
               name: k2p-tun
               mtu: 1500
               multi-queue: false
               ipv4: 198.18.0.1
             socks5:
-              port: 10808
+              port: {socksPort}
               address: 127.0.0.1
               udp: 'udp'
+            mapdns:
+              address: 198.18.0.2
+              port: 53
+              network: 198.18.0.0
+              netmask: 255.254.0.0
+              cache-size: 10000
             """;
         await File.WriteAllTextAsync(AppConfig.HevTunConfigPath, yaml, Utf8NoBom);
 
@@ -238,9 +269,9 @@ public sealed class XrayEngineService : IDisposable
             return false;
         }
 
-        // 3. Configure IP & split default routes on k2p-tun interface
+        // 3. Configure IP, DNS (mapdns), and split default routes on k2p-tun AFTER Xray & host route are ready
         await RunNetToolAsync("netsh", ["interface", "ip", "set", "address", "name=k2p-tun", "static", "198.18.0.1", "255.254.0.0"]);
-        await RunNetToolAsync("netsh", ["interface", "ip", "set", "dns", "name=k2p-tun", "static", "1.1.1.1"]);
+        await RunNetToolAsync("netsh", ["interface", "ip", "set", "dns", "name=k2p-tun", "static", "198.18.0.2"]);
 
         var tunIfIndex = GetInterfaceIndex("k2p-tun");
         if (tunIfIndex.HasValue)
@@ -320,6 +351,105 @@ public sealed class XrayEngineService : IDisposable
         }
     }
 
+    public static int GetFreeLoopbackPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    private static async Task<bool> WaitForLocalPortAsync(int port, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                await client.ConnectAsync(IPAddress.Loopback, port);
+                return true;
+            }
+            catch
+            {
+                await Task.Delay(120);
+            }
+        }
+        return false;
+    }
+
+    private static void KillStaleCoreProcesses()
+    {
+        var coreFullDir = Path.GetFullPath(AppConfig.CoreDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        foreach (var name in new[] { "xray", "hev-socks5-tunnel-win64" })
+        {
+            try
+            {
+                foreach (var proc in Process.GetProcessesByName(name))
+                {
+                    try
+                    {
+                        var path = proc.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(path) &&
+                            path.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase))
+                        {
+                            proc.Kill(entireProcessTree: true);
+                            proc.WaitForExit(1500);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore inaccessible processes
+                    }
+                    finally
+                    {
+                        proc.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore enumeration errors
+            }
+        }
+    }
+
+    private sealed record PhysicalNetInfo(string LocalIp, string GatewayIp, int IfIndex);
+
+    private static PhysicalNetInfo? GetActivePhysicalInterfaceInfo()
+    {
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+                if (nic.Name.Contains("k2p-tun", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains("Wintun", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var ipProps = nic.GetIPProperties();
+                var gw = ipProps.GatewayAddresses
+                    .FirstOrDefault(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.Any.Equals(g.Address))
+                    ?.Address.ToString();
+                if (string.IsNullOrWhiteSpace(gw)) continue;
+
+                var localIp = ipProps.UnicastAddresses
+                    .FirstOrDefault(u => u.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(u.Address))
+                    ?.Address.ToString();
+                var ifIndex = ipProps.GetIPv4Properties()?.Index;
+
+                if (!string.IsNullOrWhiteSpace(localIp) && ifIndex.HasValue)
+                    return new PhysicalNetInfo(localIp, gw, ifIndex.Value);
+            }
+        }
+        catch
+        {
+            // Fallback to null
+        }
+        return null;
+    }
+
     private static string? ValidateNode(VpnServerNode node)
     {
         if (string.IsNullOrWhiteSpace(node.Host) || node.Host.Any(char.IsControl))
@@ -369,25 +499,6 @@ public sealed class XrayEngineService : IDisposable
         {
             var addrs = await Dns.GetHostAddressesAsync(host);
             return addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? GetDefaultGatewayIpv4()
-    {
-        try
-        {
-            return NetworkInterface.GetAllNetworkInterfaces()
-                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
-                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
-                            !n.Name.Contains("k2p-tun", StringComparison.OrdinalIgnoreCase))
-                .SelectMany(n => n.GetIPProperties().GatewayAddresses)
-                .FirstOrDefault(g => g.Address.AddressFamily == AddressFamily.InterNetwork &&
-                                     !IPAddress.Any.Equals(g.Address))
-                ?.Address.ToString();
         }
         catch
         {
@@ -517,7 +628,13 @@ public sealed class XrayEngineService : IDisposable
                File.Exists(geosite) && new FileInfo(geosite).Length > 50 * 1024;
     }
 
-    public static string BuildXrayConfig(VpnServerNode node, bool bypassRussia, IReadOnlyList<string>? exclusions = null)
+    public static string BuildXrayConfig(
+        VpnServerNode node,
+        bool bypassRussia,
+        int socksPort,
+        int httpPort,
+        string? physicalLocalIp = null,
+        IReadOnlyList<string>? exclusions = null)
     {
         var root = new JsonObject
         {
@@ -528,14 +645,14 @@ public sealed class XrayEngineService : IDisposable
             }
         };
 
-        // Strictly bind to 127.0.0.1 (never 0.0.0.0) in both Proxy and TUN modes
+        // Strictly bind to 127.0.0.1 with dynamically allocated free ports
         var inbounds = new JsonArray
         {
             new JsonObject
             {
                 ["tag"] = "socks-in",
                 ["listen"] = "127.0.0.1",
-                ["port"] = 10808,
+                ["port"] = socksPort,
                 ["protocol"] = "socks",
                 ["settings"] = new JsonObject { ["auth"] = "noauth", ["udp"] = true },
                 ["sniffing"] = new JsonObject
@@ -548,7 +665,7 @@ public sealed class XrayEngineService : IDisposable
             {
                 ["tag"] = "http-in",
                 ["listen"] = "127.0.0.1",
-                ["port"] = 10809,
+                ["port"] = httpPort,
                 ["protocol"] = "http",
                 ["sniffing"] = new JsonObject
                 {
@@ -565,10 +682,19 @@ public sealed class XrayEngineService : IDisposable
             ? BuildHysteria2Outbound(node)
             : BuildVlessOutbound(node);
 
+        var directOutbound = new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" };
+
+        // Bind Xray outbound sockets to physical interface IP in TUN mode to prevent routing loop
+        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
+        {
+            proxyOutbound["sendThrough"] = physicalLocalIp;
+            directOutbound["sendThrough"] = physicalLocalIp;
+        }
+
         root["outbounds"] = new JsonArray
         {
             proxyOutbound,
-            new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" },
+            directOutbound,
             new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
         };
 
