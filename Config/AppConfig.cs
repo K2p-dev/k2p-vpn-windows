@@ -6,7 +6,7 @@ public static class AppConfig
 {
     public const string AppName = "Как 2 пальца";
     public const string AppSlogan = "Два движения. Ноль проблем.";
-    public const string AppVersion = "0.2.1 BETA";
+    public const string AppVersion = "0.2.2 BETA";
     public const int MaxDevices = 4;
 
     public const string ApiBaseUrl = "https://api.proksbro.space";
@@ -27,5 +27,6 @@ public static class AppConfig
     public static string ConfigFilePath => Path.Combine(AppDataDir, "config.json");
     public static string GeodataOverrideDir => Path.Combine(AppDataDir, "geodata");
     public static string XrayRuntimeConfigPath => Path.Combine(AppDataDir, "xray-runtime.json");
+    public static string HevTunConfigPath => Path.Combine(AppDataDir, "hev-tun.yml");
     public static string CoreDir => Path.Combine(AppContext.BaseDirectory, "Core");
 }

@@ -14,9 +14,14 @@ namespace K2pVpnWindows.Services;
 public sealed class XrayEngineService : IDisposable
 {
     private readonly SettingsStorageService _storage;
+    private readonly object _logLock = new();
+    private readonly List<string> _recentLogs = [];
+
     private Process? _xrayProcess;
+    private Process? _tunProcess;
     private VpnMode? _activeMode;
     private VpnServerNode? _activeNode;
+    private string? _bypassServerIp;
     private DateTime? _connectedAtUtc;
     private long _lastRxBytes;
     private long _lastTxBytes;
@@ -37,35 +42,43 @@ public sealed class XrayEngineService : IDisposable
     {
         await StopAsync();
 
+        var validationError = ValidateNode(node);
+        if (validationError is not null)
+        {
+            LastError = validationError;
+            return false;
+        }
+
         var coreFullDir = Path.GetFullPath(AppConfig.CoreDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var xrayExe = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "xray.exe"));
 
-        // Verify binary resides strictly inside trusted Core directory
         if (!xrayExe.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(xrayExe))
         {
             LastError = "Не найден доверенный бинарник Core/xray.exe";
             return false;
         }
 
+        string? hevExe = null;
         if (mode == VpnMode.Tun)
         {
             var wintunDll = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "wintun.dll"));
+            hevExe = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "hev-socks5-tunnel-win64.exe"));
             if (!wintunDll.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(wintunDll))
             {
                 LastError = "Не найден доверенный Core/wintun.dll для TUN-режима";
                 return false;
             }
-        }
-
-        if (string.IsNullOrWhiteSpace(node.Host) || node.Port is < 1 or > 65535)
-        {
-            LastError = "Некорректные параметры сервера";
-            return false;
+            if (!hevExe.StartsWith(coreFullDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(hevExe))
+            {
+                LastError = "Не найден доверенный Core/hev-socks5-tunnel-win64.exe для TUN-режима";
+                return false;
+            }
         }
 
         State = VpnConnectionState.Connecting;
         StateChanged?.Invoke(State);
         LastError = null;
+        lock (_logLock) _recentLogs.Clear();
 
         try
         {
@@ -73,10 +86,11 @@ public sealed class XrayEngineService : IDisposable
             var assetDir = ResolveGeodataDirectory();
             var hasGeodata = HasValidGeodata(assetDir);
             var exclusions = _storage.Current.BypassExclusions;
-            var configJson = BuildXrayConfig(node, mode, bypassRussia && hasGeodata, exclusions);
+
+            // Both modes run xray.exe with local 127.0.0.1 SOCKS5 (10808) + HTTP (10809)
+            var configJson = BuildXrayConfig(node, bypassRussia && hasGeodata, exclusions);
             await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Encoding.UTF8);
 
-            // Command-injection-safe ProcessStartInfo using ArgumentList
             var psi = new ProcessStartInfo
             {
                 FileName = xrayExe,
@@ -92,14 +106,13 @@ public sealed class XrayEngineService : IDisposable
             psi.Environment["XRAY_LOCATION_ASSET"] = assetDir;
 
             _xrayProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            _xrayProcess.OutputDataReceived += (_, _) => { };
-            _xrayProcess.ErrorDataReceived += (_, _) => { };
+            _xrayProcess.OutputDataReceived += (_, e) => AppendLog(e.Data);
+            _xrayProcess.ErrorDataReceived += (_, e) => AppendLog(e.Data);
             _xrayProcess.Exited += (_, _) =>
             {
                 if (State is VpnConnectionState.Connected or VpnConnectionState.Connecting)
                 {
-                    if (_activeMode == VpnMode.SystemProxy)
-                        SystemProxyService.DisableSystemProxy();
+                    CleanupNetworkState();
                     State = VpnConnectionState.Disconnected;
                     _connectedAtUtc = null;
                     StateChanged?.Invoke(State);
@@ -114,22 +127,18 @@ public sealed class XrayEngineService : IDisposable
                 return false;
             }
 
-            try
-            {
-                _xrayProcess.PriorityClass = ProcessPriorityClass.AboveNormal;
-            }
-            catch
-            {
-                // Ignore if OS restricts priority adjustment
-            }
+            try { _xrayProcess.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
 
             _xrayProcess.BeginOutputReadLine();
             _xrayProcess.BeginErrorReadLine();
 
-            await Task.Delay(700);
+            await Task.Delay(750);
             if (_xrayProcess.HasExited)
             {
-                LastError = $"Xray завершился с кодом {_xrayProcess.ExitCode}";
+                var errDetails = GetRecentErrorSummary();
+                LastError = string.IsNullOrWhiteSpace(errDetails)
+                    ? $"Xray завершился с кодом {_xrayProcess.ExitCode}"
+                    : $"Xray ({_xrayProcess.ExitCode}): {errDetails}";
                 State = VpnConnectionState.Disconnected;
                 StateChanged?.Invoke(State);
                 return false;
@@ -138,6 +147,15 @@ public sealed class XrayEngineService : IDisposable
             if (mode == VpnMode.SystemProxy)
             {
                 SystemProxyService.EnableSystemProxy("127.0.0.1", 10809);
+            }
+            else if (hevExe is not null)
+            {
+                var tunOk = await StartTunBridgeAsync(hevExe, node.Host);
+                if (!tunOk)
+                {
+                    await StopAsync();
+                    return false;
+                }
             }
 
             _activeMode = mode;
@@ -159,11 +177,86 @@ public sealed class XrayEngineService : IDisposable
         }
     }
 
+    private async Task<bool> StartTunBridgeAsync(string hevExe, string serverHost)
+    {
+        // 1. Add host route to VPN server via default gateway to prevent routing loop
+        var gateway = GetDefaultGatewayIpv4();
+        var serverIp = await ResolveIpv4Async(serverHost);
+        if (!string.IsNullOrWhiteSpace(serverIp) && !string.IsNullOrWhiteSpace(gateway))
+        {
+            _bypassServerIp = serverIp;
+            await RunNetToolAsync("route", ["add", serverIp, "mask", "255.255.255.255", gateway, "metric", "5"]);
+        }
+
+        // 2. Write hev-socks5-tunnel YAML config
+        var yaml = """
+            tunnel:
+              name: k2p-tun
+              mtu: 1500
+              multi-queue: false
+              ipv4: 198.18.0.1
+            socks5:
+              port: 10808
+              address: 127.0.0.1
+              udp: 'udp'
+            """;
+        await File.WriteAllTextAsync(AppConfig.HevTunConfigPath, yaml, Encoding.UTF8);
+
+        var tunPsi = new ProcessStartInfo
+        {
+            FileName = hevExe,
+            WorkingDirectory = AppConfig.CoreDir,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        tunPsi.ArgumentList.Add(AppConfig.HevTunConfigPath);
+
+        _tunProcess = new Process { StartInfo = tunPsi, EnableRaisingEvents = true };
+        _tunProcess.OutputDataReceived += (_, e) => AppendLog(e.Data);
+        _tunProcess.ErrorDataReceived += (_, e) => AppendLog(e.Data);
+
+        if (!_tunProcess.Start())
+        {
+            LastError = "Не удалось запустить hev-socks5-tunnel";
+            return false;
+        }
+
+        try { _tunProcess.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
+        _tunProcess.BeginOutputReadLine();
+        _tunProcess.BeginErrorReadLine();
+
+        await Task.Delay(800);
+        if (_tunProcess.HasExited)
+        {
+            var err = GetRecentErrorSummary();
+            LastError = string.IsNullOrWhiteSpace(err)
+                ? $"TUN-мост завершился с кодом {_tunProcess.ExitCode}"
+                : $"TUN-мост ({_tunProcess.ExitCode}): {err}";
+            return false;
+        }
+
+        // 3. Configure IP & split default routes on k2p-tun interface
+        await RunNetToolAsync("netsh", ["interface", "ip", "set", "address", "name=k2p-tun", "static", "198.18.0.1", "255.254.0.0"]);
+        await RunNetToolAsync("netsh", ["interface", "ip", "set", "dns", "name=k2p-tun", "static", "1.1.1.1"]);
+
+        var tunIfIndex = GetInterfaceIndex("k2p-tun");
+        if (tunIfIndex.HasValue)
+        {
+            var idxStr = tunIfIndex.Value.ToString();
+            await RunNetToolAsync("route", ["add", "0.0.0.0", "mask", "128.0.0.0", "198.18.0.2", "if", idxStr, "metric", "5"]);
+            await RunNetToolAsync("route", ["add", "128.0.0.0", "mask", "128.0.0.0", "198.18.0.2", "if", idxStr, "metric", "5"]);
+        }
+
+        return true;
+    }
+
     public async Task StopAsync()
     {
-        if (State == VpnConnectionState.Disconnected && _xrayProcess is null)
+        if (State == VpnConnectionState.Disconnected && _xrayProcess is null && _tunProcess is null)
         {
-            SystemProxyService.DisableSystemProxy();
+            CleanupNetworkState();
             return;
         }
 
@@ -172,9 +265,12 @@ public sealed class XrayEngineService : IDisposable
 
         try
         {
-            if (_activeMode == VpnMode.SystemProxy)
+            CleanupNetworkState();
+
+            if (_tunProcess is not null && !_tunProcess.HasExited)
             {
-                SystemProxyService.DisableSystemProxy();
+                _tunProcess.Kill(entireProcessTree: true);
+                await _tunProcess.WaitForExitAsync();
             }
 
             if (_xrayProcess is not null && !_xrayProcess.HasExited)
@@ -189,6 +285,8 @@ public sealed class XrayEngineService : IDisposable
         }
         finally
         {
+            _tunProcess?.Dispose();
+            _tunProcess = null;
             _xrayProcess?.Dispose();
             _xrayProcess = null;
             _activeMode = null;
@@ -196,6 +294,151 @@ public sealed class XrayEngineService : IDisposable
             State = VpnConnectionState.Disconnected;
             StateChanged?.Invoke(State);
         }
+    }
+
+    private void CleanupNetworkState()
+    {
+        SystemProxyService.DisableSystemProxy();
+
+        if (_activeMode == VpnMode.Tun || !string.IsNullOrWhiteSpace(_bypassServerIp))
+        {
+            try
+            {
+                RunNetToolSync("route", ["delete", "0.0.0.0", "mask", "128.0.0.0", "198.18.0.2"]);
+                RunNetToolSync("route", ["delete", "128.0.0.0", "mask", "128.0.0.0", "198.18.0.2"]);
+                if (!string.IsNullOrWhiteSpace(_bypassServerIp))
+                {
+                    RunNetToolSync("route", ["delete", _bypassServerIp]);
+                    _bypassServerIp = null;
+                }
+            }
+            catch
+            {
+                // Best effort route cleanup
+            }
+        }
+    }
+
+    private static string? ValidateNode(VpnServerNode node)
+    {
+        if (string.IsNullOrWhiteSpace(node.Host) || node.Host.Any(char.IsControl))
+            return "Некорректный адрес сервера в подписке.";
+        if (node.Port is < 1 or > 65535)
+            return $"Некорректный порт сервера: {node.Port}.";
+        if (string.IsNullOrWhiteSpace(node.UuidOrPassword))
+            return "Отсутствует UUID / пароль в конфигурации сервера.";
+
+        if (node.Protocol.Equals("vless", StringComparison.OrdinalIgnoreCase))
+        {
+            var sec = node.Security?.ToLowerInvariant() ?? (!string.IsNullOrWhiteSpace(node.Pbk) ? "reality" : "tls");
+            if (sec == "reality" && string.IsNullOrWhiteSpace(node.Pbk))
+                return "Некорректная VLESS Reality ссылка: отсутствует параметр pbk.";
+        }
+        return null;
+    }
+
+    private void AppendLog(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+        lock (_logLock)
+        {
+            _recentLogs.Add(line.Trim());
+            if (_recentLogs.Count > 30)
+                _recentLogs.RemoveAt(0);
+        }
+    }
+
+    private string GetRecentErrorSummary()
+    {
+        lock (_logLock)
+        {
+            var errLine = _recentLogs.LastOrDefault(l =>
+                l.Contains("Failed", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains("fatal", StringComparison.OrdinalIgnoreCase));
+            return errLine ?? _recentLogs.LastOrDefault() ?? string.Empty;
+        }
+    }
+
+    private static async Task<string?> ResolveIpv4Async(string host)
+    {
+        if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
+            return ip.ToString();
+        try
+        {
+            var addrs = await Dns.GetHostAddressesAsync(host);
+            return addrs.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? GetDefaultGatewayIpv4()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                            !n.Name.Contains("k2p-tun", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(n => n.GetIPProperties().GatewayAddresses)
+                .FirstOrDefault(g => g.Address.AddressFamily == AddressFamily.InterNetwork &&
+                                     !IPAddress.Any.Equals(g.Address))
+                ?.Address.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int? GetInterfaceIndex(string interfaceName)
+    {
+        try
+        {
+            var nic = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n => n.Name.Equals(interfaceName, StringComparison.OrdinalIgnoreCase));
+            return nic?.GetIPProperties().GetIPv4Properties()?.Index;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task RunNetToolAsync(string exe, IEnumerable<string> args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = exe,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi);
+            if (p is not null) await p.WaitForExitAsync();
+        }
+        catch
+        {
+            // Ignore route/netsh failures
+        }
+    }
+
+    private static void RunNetToolSync(string exe, IEnumerable<string> args)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = exe,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi);
+        p?.WaitForExit(1500);
     }
 
     public TimeSpan GetSessionDuration() =>
@@ -273,7 +516,7 @@ public sealed class XrayEngineService : IDisposable
                File.Exists(geosite) && new FileInfo(geosite).Length > 50 * 1024;
     }
 
-    public static string BuildXrayConfig(VpnServerNode node, VpnMode mode, bool bypassRussia, IReadOnlyList<string>? exclusions = null)
+    public static string BuildXrayConfig(VpnServerNode node, bool bypassRussia, IReadOnlyList<string>? exclusions = null)
     {
         var root = new JsonObject
         {
@@ -284,32 +527,10 @@ public sealed class XrayEngineService : IDisposable
             }
         };
 
-        var inbounds = new JsonArray();
-        if (mode == VpnMode.Tun)
+        // Strictly bind to 127.0.0.1 (never 0.0.0.0) in both Proxy and TUN modes
+        var inbounds = new JsonArray
         {
-            inbounds.Add(new JsonObject
-            {
-                ["tag"] = "tun-in",
-                ["protocol"] = "tun",
-                ["settings"] = new JsonObject
-                {
-                    ["interfaceName"] = "k2p-tun",
-                    ["mtu"] = 1500,
-                    ["autoRoute"] = true,
-                    ["stack"] = "system"
-                },
-                ["sniffing"] = new JsonObject
-                {
-                    ["enabled"] = true,
-                    ["destOverride"] = new JsonArray("http", "tls", "quic"),
-                    ["routeOnly"] = true
-                }
-            });
-        }
-        else
-        {
-            // Strictly bind to 127.0.0.1 (never 0.0.0.0)
-            inbounds.Add(new JsonObject
+            new JsonObject
             {
                 ["tag"] = "socks-in",
                 ["listen"] = "127.0.0.1",
@@ -321,8 +542,8 @@ public sealed class XrayEngineService : IDisposable
                     ["enabled"] = true,
                     ["destOverride"] = new JsonArray("http", "tls", "quic")
                 }
-            });
-            inbounds.Add(new JsonObject
+            },
+            new JsonObject
             {
                 ["tag"] = "http-in",
                 ["listen"] = "127.0.0.1",
@@ -333,8 +554,8 @@ public sealed class XrayEngineService : IDisposable
                     ["enabled"] = true,
                     ["destOverride"] = new JsonArray("http", "tls", "quic")
                 }
-            });
-        }
+            }
+        };
         root["inbounds"] = inbounds;
 
         var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase)
@@ -350,7 +571,6 @@ public sealed class XrayEngineService : IDisposable
 
         var rules = new JsonArray();
 
-        // User-defined exclusions (domains and IPs/CIDRs)
         if (exclusions is { Count: > 0 })
         {
             var customIps = new JsonArray();
@@ -366,13 +586,9 @@ public sealed class XrayEngineService : IDisposable
                     customDomains.Add(item.StartsWith("domain:", StringComparison.OrdinalIgnoreCase) ? item : $"domain:{item}");
             }
             if (customIps.Count > 0)
-            {
                 rules.Add(new JsonObject { ["type"] = "field", ["ip"] = customIps, ["outboundTag"] = "direct" });
-            }
             if (customDomains.Count > 0)
-            {
                 rules.Add(new JsonObject { ["type"] = "field", ["domain"] = customDomains, ["outboundTag"] = "direct" });
-            }
         }
 
         if (bypassRussia)

@@ -1,0 +1,98 @@
+<UserControl x:Class="K2pVpnWindows.Controls.ColorPickerControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <!-- 2D Saturation / Brightness Square -->
+        <Border Height="130" CornerRadius="10" ClipToBounds="True"
+                BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="1" Margin="0,0,0,10">
+            <Grid x:Name="SvGrid" Cursor="Cross"
+                  MouseLeftButtonDown="OnSvMouseDown"
+                  MouseMove="OnSvMouseMove"
+                  MouseLeftButtonUp="OnSvMouseUp">
+                <!-- Base Hue Color -->
+                <Border x:Name="HueBaseLayer" Background="#E11D48"/>
+                <!-- White -> Transparent horizontal (Saturation) -->
+                <Border>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                            <GradientStop Color="#00FFFFFF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <!-- Transparent -> Black vertical (Brightness) -->
+                <Border>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="#FF000000" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <!-- Draggable Ring Cursor -->
+                <Canvas IsHitTestVisible="False">
+                    <Ellipse x:Name="SvThumb" Width="14" Height="14" Stroke="White" StrokeThickness="2" Fill="Transparent">
+                        <Ellipse.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="3" ShadowDepth="0" Opacity="0.8"/>
+                        </Ellipse.Effect>
+                    </Ellipse>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <!-- Rainbow Hue Slider (0..360) -->
+        <Grid Margin="0,0,0,10">
+            <Border Height="12" CornerRadius="6" VerticalAlignment="Center" BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="0.5">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#FF0000" Offset="0.00"/>
+                        <GradientStop Color="#FFFF00" Offset="0.17"/>
+                        <GradientStop Color="#00FF00" Offset="0.33"/>
+                        <GradientStop Color="#00FFFF" Offset="0.50"/>
+                        <GradientStop Color="#0000FF" Offset="0.67"/>
+                        <GradientStop Color="#FF00FF" Offset="0.83"/>
+                        <GradientStop Color="#FF0000" Offset="1.00"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Slider x:Name="HueSlider" Minimum="0" Maximum="360" Value="347"
+                    VerticalAlignment="Center" Background="Transparent"
+                    ValueChanged="OnHueSliderChanged"/>
+        </Grid>
+
+        <!-- Presets Row + Live Preview -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Width="22" Height="22" Margin="0,0,6,0" ToolTip="Малиновый (#E11D48)" Tag="#E11D48" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#E11D48" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+                <Button Width="22" Height="22" Margin="0,0,6,0" ToolTip="Неоновый синий (#3B82F6)" Tag="#3B82F6" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#3B82F6" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+                <Button Width="22" Height="22" Margin="0,0,6,0" ToolTip="Изумрудный (#10B981)" Tag="#10B981" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#10B981" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+                <Button Width="22" Height="22" Margin="0,0,6,0" ToolTip="Фиолетовый (#8B5CF6)" Tag="#8B5CF6" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#8B5CF6" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+                <Button Width="22" Height="22" Margin="0,0,6,0" ToolTip="Янтарный (#F59E0B)" Tag="#F59E0B" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#F59E0B" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+                <Button Width="22" Height="22" ToolTip="Бирюзовый (#06B6D4)" Tag="#06B6D4" Click="OnPresetClick" Cursor="Hand">
+                    <Button.Template><ControlTemplate TargetType="Button"><Ellipse Fill="#06B6D4" Stroke="White" StrokeThickness="1"/></ControlTemplate></Button.Template>
+                </Button>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Ellipse x:Name="PreviewCircle" Width="22" Height="22" Fill="#E11D48"
+                         Stroke="{DynamicResource OutlineBrush}" StrokeThickness="1.5" Margin="0,0,6,0"/>
+                <TextBlock x:Name="HexLabel" Text="#E11D48" FontFamily="Consolas" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </StackPanel>
+</UserControl>

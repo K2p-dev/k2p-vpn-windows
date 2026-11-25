@@ -33,7 +33,7 @@ public partial class SettingsView : System.Windows.Controls.UserControl
             GeodataDateText.Text = $"База геоданных: {App.WinIntegration.GetGeodataDateDisplay()}";
             VersionText.Text = $"v{AppConfig.AppVersion}";
             ExclusionsBox.Text = string.Join(", ", s.BypassExclusions);
-            CustomHexBox.Text = s.CustomAccentHex;
+            AccentColorPicker.SetHex(s.CustomAccentHex);
             DimOpacitySlider.Value = s.BackgroundDimOpacity;
             MediaFileNameText.Text = string.IsNullOrWhiteSpace(s.BackgroundMediaPath)
                 ? "Файл не выбран"
@@ -149,11 +149,14 @@ public partial class SettingsView : System.Windows.Controls.UserControl
         RefreshFromStorage();
     }
 
-    private void OnApplyCustomHexClick(object sender, RoutedEventArgs e)
+    private void OnVisualColorPicked(string hex)
     {
-        App.Storage.Update(s => s.CustomAccentHex = CustomHexBox.Text.Trim());
+        App.Storage.Update(s =>
+        {
+            s.AccentMode = AppAccentMode.Custom;
+            s.CustomAccentHex = hex;
+        });
         AppearanceChanged?.Invoke();
-        RefreshFromStorage();
     }
 
     private void OnBgGradientClick(object sender, RoutedEventArgs e) => SetBackgroundType(AppBackgroundType.Gradient);
