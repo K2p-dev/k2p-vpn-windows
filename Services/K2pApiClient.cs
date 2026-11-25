@@ -129,6 +129,18 @@ public sealed class K2pApiClient
         return SendAsync<AuthResponse>(req, ct);
     }
 
+    public Task<(bool Ok, EmailRegisterInitResponse? Data, string? Error)> RegisterEmailInitAsync(string email, string password, CancellationToken ct = default)
+    {
+        using var req = CreateApiRequest(HttpMethod.Post, "api/auth/register/email/init", new EmailRegisterInitRequest(email, password));
+        return SendAsync<EmailRegisterInitResponse>(req, ct);
+    }
+
+    public Task<(bool Ok, AuthResponse? Data, string? Error)> RegisterEmailVerifyAsync(string verifyToken, string code, CancellationToken ct = default)
+    {
+        using var req = CreateApiRequest(HttpMethod.Post, "api/auth/register/email/verify", new EmailRegisterVerifyRequest(verifyToken, code));
+        return SendAsync<AuthResponse>(req, ct);
+    }
+
     public Task<(bool Ok, TgInitResponse? Data, string? Error)> InitTelegramAuthAsync(CancellationToken ct = default)
     {
         using var req = CreateApiRequest(HttpMethod.Post, "api/auth/tg/init");

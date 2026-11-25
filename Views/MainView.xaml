@@ -84,7 +84,12 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="SelectedFlagText" Grid.Column="0" Text="🌐" FontSize="22" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <Border Grid.Column="0" Width="22" Height="15" CornerRadius="3" ClipToBounds="True"
+                                    VerticalAlignment="Center" Margin="0,0,10,0"
+                                    BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="0.5">
+                                <Image x:Name="SelectedFlagImage" Stretch="UniformToFill"
+                                       Source="{Binding Source='DEFAULT', Converter={StaticResource CountryFlagConverter}}"/>
+                            </Border>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <TextBlock x:Name="SelectedNameText" Text="Загрузка серверов..." FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
@@ -118,7 +123,12 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{Binding FlagEmoji}" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <Border Grid.Column="0" Width="20" Height="14" CornerRadius="3" ClipToBounds="True"
+                                                        VerticalAlignment="Center" Margin="0,0,9,0"
+                                                        BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="0.5">
+                                                    <Image Stretch="UniformToFill"
+                                                           Source="{Binding FlagKey, Converter={StaticResource CountryFlagConverter}}"/>
+                                                </Border>
                                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding ProtocolLabel}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
@@ -145,7 +155,7 @@
                 </Border>
 
                 <TextBlock x:Name="StatusMessageText" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11"
-                           Foreground="#FCA5A5" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                           Foreground="{DynamicResource ErrorTextBrush}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
             </StackPanel>
         </ScrollViewer>
 

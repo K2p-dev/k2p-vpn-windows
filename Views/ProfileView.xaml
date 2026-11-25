@@ -73,7 +73,7 @@
             </Grid>
 
             <Button Content="Выйти из аккаунта" Style="{StaticResource PrimaryButtonStyle}"
-                    Background="#3B111C" Click="OnLogoutClick"/>
+                    Background="{DynamicResource DangerButtonBrush}" Foreground="White" Click="OnLogoutClick"/>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

@@ -10,6 +10,9 @@ namespace K2pVpnWindows.Views;
 public partial class AuthView : System.Windows.Controls.UserControl
 {
     private CancellationTokenSource? _tgPollCts;
+    private string _loginPassword = string.Empty;
+    private string _regPassword = string.Empty;
+    private string? _pendingVerifyToken;
 
     public event Action? Authenticated;
 
@@ -18,9 +21,8 @@ public partial class AuthView : System.Windows.Controls.UserControl
         InitializeComponent();
     }
 
-    private void OnTabTgClick(object sender, RoutedEventArgs e) => SwitchTab(0);
-    private void OnTabTokenClick(object sender, RoutedEventArgs e) => SwitchTab(1);
-    private void OnTabEmailClick(object sender, RoutedEventArgs e) => SwitchTab(2);
+    private void OnTabLoginClick(object sender, RoutedEventArgs e) => SwitchTab(0);
+    private void OnTabRegisterClick(object sender, RoutedEventArgs e) => SwitchTab(1);
 
     private void SwitchTab(int index)
     {
@@ -28,19 +30,130 @@ public partial class AuthView : System.Windows.Controls.UserControl
         TgPollingText.Visibility = Visibility.Collapsed;
         ErrorBanner.Visibility = Visibility.Collapsed;
 
-        TgPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
-        TokenPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
-        EmailPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        LoginPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RegisterPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
 
         var accent = (WpfBrush)FindResource("AccentBrush");
         var textSec = (WpfBrush)FindResource("TextSecondaryBrush");
 
-        TabTgBtn.Background = index == 0 ? accent : WpfBrushes.Transparent;
-        TabTgBtn.Foreground = index == 0 ? WpfBrushes.White : textSec;
-        TabTokenBtn.Background = index == 1 ? accent : WpfBrushes.Transparent;
-        TabTokenBtn.Foreground = index == 1 ? WpfBrushes.White : textSec;
-        TabEmailBtn.Background = index == 2 ? accent : WpfBrushes.Transparent;
-        TabEmailBtn.Foreground = index == 2 ? WpfBrushes.White : textSec;
+        TabLoginBtn.Background = index == 0 ? accent : WpfBrushes.Transparent;
+        TabLoginBtn.Foreground = index == 0 ? WpfBrushes.White : textSec;
+        TabRegisterBtn.Background = index == 1 ? accent : WpfBrushes.Transparent;
+        TabRegisterBtn.Foreground = index == 1 ? WpfBrushes.White : textSec;
+    }
+
+    private void OnLoginPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        _loginPassword = LoginPasswordBox.Password;
+    }
+
+    private void OnRegPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        _regPassword = RegPasswordBox.Password;
+    }
+
+    private async void OnEmailLoginClick(object sender, RoutedEventArgs e)
+    {
+        ErrorBanner.Visibility = Visibility.Collapsed;
+        var email = LoginEmailBox.Text.Trim();
+        var password = _loginPassword;
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        {
+            ShowError("Введите email и пароль.");
+            return;
+        }
+
+        EmailLoginBtn.IsEnabled = false;
+        try
+        {
+            var (ok, resp, err) = await App.ApiClient.LoginAsync(email, password);
+            if (!ok || resp is null || string.IsNullOrWhiteSpace(resp.Token))
+            {
+                if (resp?.Code is "DEVICE_LIMIT_EXCEEDED")
+                {
+                    ShowError("Достигнут лимит устройств (4 из 4). Отвяжите неиспользуемое устройство в Telegram-боте или веб-кабинете.");
+                }
+                else
+                {
+                    ShowError(err ?? "Неверный email или пароль.");
+                }
+                return;
+            }
+
+            App.Storage.SetToken(resp.Token);
+            Authenticated?.Invoke();
+        }
+        finally
+        {
+            EmailLoginBtn.IsEnabled = true;
+        }
+    }
+
+    private async void OnRegInitClick(object sender, RoutedEventArgs e)
+    {
+        ErrorBanner.Visibility = Visibility.Collapsed;
+        var email = RegEmailBox.Text.Trim();
+        var password = _regPassword;
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        {
+            ShowError("Введите email и пароль для регистрации.");
+            return;
+        }
+
+        RegInitBtn.IsEnabled = false;
+        try
+        {
+            var (ok, resp, err) = await App.ApiClient.RegisterEmailInitAsync(email, password);
+            if (!ok || resp is null || string.IsNullOrWhiteSpace(resp.VerifyToken))
+            {
+                ShowError(err ?? "Не удалось отправить код подтверждения.");
+                return;
+            }
+
+            _pendingVerifyToken = resp.VerifyToken;
+            RegStep1Panel.Visibility = Visibility.Collapsed;
+            RegStep2Panel.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            RegInitBtn.IsEnabled = true;
+        }
+    }
+
+    private async void OnRegVerifyClick(object sender, RoutedEventArgs e)
+    {
+        ErrorBanner.Visibility = Visibility.Collapsed;
+        var code = RegCodeBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(_pendingVerifyToken) || string.IsNullOrWhiteSpace(code))
+        {
+            ShowError("Введите код подтверждения из письма.");
+            return;
+        }
+
+        RegVerifyBtn.IsEnabled = false;
+        try
+        {
+            var (ok, resp, err) = await App.ApiClient.RegisterEmailVerifyAsync(_pendingVerifyToken, code);
+            if (!ok || resp is null || string.IsNullOrWhiteSpace(resp.Token))
+            {
+                ShowError(err ?? "Неверный код подтверждения.");
+                return;
+            }
+
+            App.Storage.SetToken(resp.Token);
+            Authenticated?.Invoke();
+        }
+        finally
+        {
+            RegVerifyBtn.IsEnabled = true;
+        }
+    }
+
+    private void OnRegBackClick(object sender, RoutedEventArgs e)
+    {
+        RegStep2Panel.Visibility = Visibility.Collapsed;
+        RegStep1Panel.Visibility = Visibility.Visible;
+        ErrorBanner.Visibility = Visibility.Collapsed;
     }
 
     private async void OnTgLoginClick(object sender, RoutedEventArgs e)
@@ -78,20 +191,16 @@ public partial class AuthView : System.Windows.Controls.UserControl
                     ShowError("Достигнут лимит устройств (4 из 4). Отвяжите старое устройство в боте или веб-кабинете.");
                     return;
                 }
-                if (!chkOk && chkErr is not null && !chkErr.Contains("pending", StringComparison.OrdinalIgnoreCase) && chk?.Status != "pending")
+                if (!chkOk && chk?.Code is "EXPIRED" or "NOT_FOUND")
                 {
-                    // Keep polling unless explicit fatal error
-                    if (chk?.Code is "EXPIRED" or "NOT_FOUND")
-                    {
-                        ShowError(chkErr);
-                        return;
-                    }
+                    ShowError(chkErr ?? "Срок действия ссылки истёк.");
+                    return;
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            // Cancelled by user switching tabs
+            // Cancelled when switching tabs
         }
         catch (Exception ex)
         {
@@ -101,90 +210,6 @@ public partial class AuthView : System.Windows.Controls.UserControl
         {
             TgLoginBtn.IsEnabled = true;
             TgPollingText.Visibility = Visibility.Collapsed;
-        }
-    }
-
-    private async void OnTokenLoginClick(object sender, RoutedEventArgs e)
-    {
-        ErrorBanner.Visibility = Visibility.Collapsed;
-        var input = TokenBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            ShowError("Введите токен или ссылку подписки.");
-            return;
-        }
-
-        TokenLoginBtn.IsEnabled = false;
-        try
-        {
-            if (input.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                input.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                var sub = await App.ApiClient.FetchSubscriptionAsync(input);
-                if (sub is null || SubscriptionParser.ParseNodes(sub.Value.Body).Count == 0)
-                {
-                    ShowError("Не удалось загрузить серверы по этой ссылке подписки.");
-                    return;
-                }
-                App.Storage.SetSubscriptionUrl(input);
-                App.Storage.Update(s =>
-                {
-                    s.CachedSubscriptionBody = sub.Value.Body;
-                    s.CachedTrafficInfo = sub.Value.TrafficInfo;
-                });
-                Authenticated?.Invoke();
-                return;
-            }
-
-            // Treat as JWT / API token
-            App.Storage.SetToken(input);
-            var (ok, profile, err) = await App.ApiClient.GetProfileAsync();
-            if (!ok || profile is null)
-            {
-                App.Storage.SetToken(null);
-                ShowError(err ?? "Недействительный токен авторизации.");
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(profile.SubLink))
-            {
-                App.Storage.SetSubscriptionUrl(profile.SubLink);
-            }
-            Authenticated?.Invoke();
-        }
-        finally
-        {
-            TokenLoginBtn.IsEnabled = true;
-        }
-    }
-
-    private async void OnEmailLoginClick(object sender, RoutedEventArgs e)
-    {
-        ErrorBanner.Visibility = Visibility.Collapsed;
-        var email = EmailBox.Text.Trim();
-        var password = PasswordBox.Password;
-        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
-        {
-            ShowError("Введите email и пароль.");
-            return;
-        }
-
-        EmailLoginBtn.IsEnabled = false;
-        try
-        {
-            var (ok, resp, err) = await App.ApiClient.LoginAsync(email, password);
-            if (!ok || resp is null || string.IsNullOrWhiteSpace(resp.Token))
-            {
-                ShowError(err ?? "Неверный email или пароль.");
-                return;
-            }
-
-            App.Storage.SetToken(resp.Token);
-            Authenticated?.Invoke();
-        }
-        finally
-        {
-            EmailLoginBtn.IsEnabled = true;
         }
     }
 

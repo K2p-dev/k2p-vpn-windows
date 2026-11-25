@@ -16,7 +16,7 @@ namespace K2pVpnWindows.Views;
 public sealed class ServerDisplayItem
 {
     public required VpnServerNode Node { get; init; }
-    public string FlagEmoji => Node.FlagEmoji;
+    public string FlagKey => $"{Node.FlagEmoji} {Node.CountryName} {Node.Name}";
     public string Name => Node.Name;
     public string ProtocolLabel => Node.ProtocolLabel;
     public string PingDisplay => Node.PingMs.HasValue ? $"{Node.PingMs} ms" : "— ms";
@@ -97,7 +97,7 @@ public partial class MainView : System.Windows.Controls.UserControl
 
         if (_nodes.Count == 0)
         {
-            SelectedFlagText.Text = "⚠️";
+            SelectedFlagImage.Source = FindResource("Flag_DEFAULT") as ImageSource;
             SelectedNameText.Text = "Нет доступных серверов";
             SelectedProtoText.Text = "Проверьте подписку";
             SelectedPingText.Text = "— ms";
@@ -327,7 +327,9 @@ public partial class MainView : System.Windows.Controls.UserControl
     private void ApplySelectedNodeUI()
     {
         if (_selectedNode is null) return;
-        SelectedFlagText.Text = _selectedNode.FlagEmoji;
+        var iso = Converters.CountryCodeToFlagConverter.ResolveIsoCode($"{_selectedNode.FlagEmoji} {_selectedNode.CountryName} {_selectedNode.Name}");
+        SelectedFlagImage.Source = System.Windows.Application.Current.TryFindResource($"Flag_{iso}") as ImageSource
+                                   ?? System.Windows.Application.Current.TryFindResource("Flag_DEFAULT") as ImageSource;
         SelectedNameText.Text = _selectedNode.Name;
         SelectedProtoText.Text = _selectedNode.ProtocolLabel;
         SelectedPingText.Text = _selectedNode.PingMs.HasValue ? $"{_selectedNode.PingMs} ms" : "— ms";

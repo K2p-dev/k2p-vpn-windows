@@ -13,14 +13,7 @@
             <!-- Background Layer (Gradient / Static Image / Hardware Video) -->
             <Border CornerRadius="20" ClipToBounds="True">
                 <Grid>
-                    <Border x:Name="BgGradientLayer">
-                        <Border.Background>
-                            <RadialGradientBrush GradientOrigin="0.5,0.15" Center="0.5,0.15" RadiusX="0.9" RadiusY="0.7">
-                                <GradientStop Color="#260A12" Offset="0"/>
-                                <GradientStop Color="Transparent" Offset="1"/>
-                            </RadialGradientBrush>
-                        </Border.Background>
-                    </Border>
+                    <Border x:Name="BgGradientLayer" Background="{DynamicResource AmbientGlowBrush}"/>
                     <Image x:Name="BgImageLayer" Visibility="Collapsed" Stretch="UniformToFill"/>
                     <MediaElement x:Name="BgVideoLayer" Visibility="Collapsed" LoadedBehavior="Manual"
                                   UnloadedBehavior="Manual" IsMuted="True" ScrubbingEnabled="False"
@@ -37,8 +30,8 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Custom Title Bar -->
-                <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseDown">
+                <!-- Custom Title Bar (only HeaderBar handles DragMove) -->
+                <Grid x:Name="HeaderBar" Grid.Row="0" Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseDown">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -51,7 +44,7 @@
                                    Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                         <Border Background="{DynamicResource CardVariantBrush}" BorderBrush="{DynamicResource OutlineBrush}"
                                 BorderThickness="1" CornerRadius="6" Padding="5,2" Margin="7,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="v0.2" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentHoverBrush}"/>
+                            <TextBlock Text="v0.2.1" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentHoverBrush}"/>
                         </Border>
                     </StackPanel>
 

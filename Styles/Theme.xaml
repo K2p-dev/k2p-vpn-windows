@@ -16,6 +16,16 @@
     <SolidColorBrush x:Key="SwitchOffTrackBrush" Color="#2C1D21"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="#22C55E"/>
     <SolidColorBrush x:Key="WarningBrush" Color="#F59E0B"/>
+    <SolidColorBrush x:Key="BadgeBgBrush" Color="#3B111C"/>
+    <SolidColorBrush x:Key="BadgeTextBrush" Color="#FB7185"/>
+    <SolidColorBrush x:Key="ErrorBgBrush" Color="#3B111C"/>
+    <SolidColorBrush x:Key="ErrorTextBrush" Color="#FCA5A5"/>
+    <SolidColorBrush x:Key="DangerButtonBrush" Color="#3B111C"/>
+
+    <RadialGradientBrush x:Key="AmbientGlowBrush" GradientOrigin="0.5,0.15" Center="0.5,0.15" RadiusX="0.9" RadiusY="0.7">
+        <GradientStop Color="#26E11D48" Offset="0"/>
+        <GradientStop Color="#00000000" Offset="1"/>
+    </RadialGradientBrush>
 
     <!-- Primary Accent Button -->
     <Style x:Key="PrimaryButtonStyle" TargetType="Button">
@@ -78,47 +88,71 @@
         </Setter>
     </Style>
 
-    <!-- Dark TextBox -->
+    <!-- TextBox with reliable focus, hit-test, and caret -->
     <Style x:Key="DarkTextBoxStyle" TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource CardVariantBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="12,10"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="MinHeight" Value="40"/>
         <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="IsTabStop" Value="True"/>
+        <Setter Property="IsHitTestVisible" Value="True"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
-                    <Border Background="{TemplateBinding Background}"
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                            CornerRadius="10" IsHitTestVisible="True">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" IsHitTestVisible="True"
+                                      Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
                     </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
     </Style>
 
-    <!-- Dark PasswordBox -->
+    <!-- PasswordBox with reliable focus, hit-test, and caret -->
     <Style x:Key="DarkPasswordBoxStyle" TargetType="PasswordBox">
         <Setter Property="Background" Value="{DynamicResource CardVariantBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="12,10"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="MinHeight" Value="40"/>
         <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Focusable" Value="True"/>
+        <Setter Property="IsTabStop" Value="True"/>
+        <Setter Property="IsHitTestVisible" Value="True"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="PasswordBox">
-                    <Border Background="{TemplateBinding Background}"
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                            CornerRadius="10" IsHitTestVisible="True">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" IsHitTestVisible="True"
+                                      Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
                     </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
