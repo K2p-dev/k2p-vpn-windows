@@ -1,0 +1,58 @@
+name: Build and Release Windows Client
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file x64
+        run: |
+          dotnet publish K2pVpnWindows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+
+      - name: Package release archives
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = "${{ github.ref_name }}"
+          }
+          $stage = "stage_pkg"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "publish\K2P-VPN-Windows.exe" "$stage\K2P-VPN-Windows.exe" -Force
+          Copy-Item "Core" "$stage\Core" -Recurse -Force
+
+          Compress-Archive -Path "$stage\*" -DestinationPath "K2P-VPN-Windows-${tag}.zip" -Force
+          Copy-Item "K2P-VPN-Windows-${tag}.zip" "K2P-VPN-Windows.zip" -Force
+          Write-Output "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Как 2 пальца (K2P VPN) ${{ env.RELEASE_TAG }}"
+          prerelease: false
+          files: |
+            K2P-VPN-Windows-${{ env.RELEASE_TAG }}.zip
+            K2P-VPN-Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

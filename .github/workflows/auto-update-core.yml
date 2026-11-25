@@ -1,0 +1,92 @@
+name: Auto-Update Core & Geodata
+
+on:
+  schedule:
+    - cron: '0 3 */3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-update:
+    runs-on: windows-latest
+    outputs:
+      updated: ${{ steps.check.outputs.updated }}
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Xray & Geodata updates
+        id: check
+        shell: pwsh
+        run: |
+          $versions = Get-Content ".github\versions.json" -Raw | ConvertFrom-Json
+          $headers = @{ "User-Agent" = "K2P-VPN-AutoUpdate" }
+
+          $xrayRel = Invoke-RestMethod -Uri "https://api.github.com/repos/XTLS/Xray-core/releases/latest" -Headers $headers
+          $geoRel = Invoke-RestMethod -Uri "https://api.github.com/repos/runetfreedom/russia-v2ray-rules-dat/releases/latest" -Headers $headers
+
+          $latestXray = $xrayRel.tag_name
+          $latestGeo = $geoRel.tag_name
+
+          if ($latestXray -ne $versions.xray_tag -or $latestGeo -ne $versions.geodata_sha) {
+            Write-Host "Update detected: Xray $($versions.xray_tag) -> $latestXray, Geo $($versions.geodata_sha) -> $latestGeo"
+
+            $xrayAsset = $xrayRel.assets | Where-Object { $_.name -eq "Xray-windows-64.zip" } | Select-Object -First 1
+            Invoke-WebRequest -Uri $xrayAsset.browser_download_url -OutFile "xray.zip"
+            Expand-Archive -Path "xray.zip" -DestinationPath "xray_tmp" -Force
+            Copy-Item "xray_tmp\xray.exe" "Core\xray.exe" -Force
+            Remove-Item "xray.zip", "xray_tmp" -Recurse -Force
+
+            Invoke-WebRequest -Uri "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" -OutFile "Core\geoip.dat"
+            Invoke-WebRequest -Uri "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" -OutFile "Core\geosite.dat"
+
+            $versions.xray_tag = $latestXray
+            $versions.geodata_sha = $latestGeo
+            $versions | ConvertTo-Json | Set-Content ".github\versions.json" -Encoding UTF8
+
+            Write-Output "updated=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Core and geodata are up to date."
+            Write-Output "updated=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Bump patch version and commit
+        id: bump
+        if: steps.check.outputs.updated == 'true'
+        shell: pwsh
+        run: |
+          $appConfig = Get-Content "Config\AppConfig.cs" -Raw
+          if ($appConfig -match 'AppVersion = "(\d+)\.(\d+)\.(\d+)( BETA)?"') {
+            $maj = [int]$Matches[1]
+            $min = [int]$Matches[2]
+            $pat = [int]$Matches[3] + 1
+            $newVer = "$maj.$min.$pat BETA"
+            $newTag = "v$maj.$min.$pat-beta"
+
+            $appConfig = $appConfig -replace 'AppVersion = "[^"]+"', "AppVersion = `"$newVer`""
+            Set-Content "Config\AppConfig.cs" $appConfig -Encoding UTF8
+
+            $csproj = Get-Content "K2pVpnWindows.csproj" -Raw
+            $csproj = $csproj -replace '<Version>[^<]+</Version>', "<Version>$maj.$min.$pat</Version>"
+            Set-Content "K2pVpnWindows.csproj" $csproj -Encoding UTF8
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add Core/ .github/versions.json Config/AppConfig.cs K2pVpnWindows.csproj
+            git commit -m "chore(core): update Xray/geodata & bump to $newVer"
+            git tag $newTag
+            git push origin HEAD:main --tags
+
+            Write-Output "new_tag=$newTag" >> $env:GITHUB_OUTPUT
+          }
+
+  trigger-release:
+    needs: check-and-update
+    if: needs.check-and-update.outputs.updated == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.check-and-update.outputs.new_tag }}
+    secrets: inherit

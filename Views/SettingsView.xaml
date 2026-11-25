@@ -1,0 +1,107 @@
+<UserControl x:Class="K2pVpnWindows.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20,6,20,20">
+            <TextBlock Text="Настройки" FontSize="18" FontWeight="Bold"
+                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+
+            <!-- Russia Geodata Bypass Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="Авто-геоданные РФ" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Российские сайты и банки работают напрямую без VPN" TextWrapping="Wrap"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox x:Name="BypassRussiaSwitch" Grid.Column="1" Style="{StaticResource SwitchCheckBoxStyle}"
+                                  VerticalAlignment="Center" Click="OnBypassRussiaToggle"/>
+                    </Grid>
+                    <Border Height="1" Background="{StaticResource OutlineBrush}" Margin="0,12"/>
+                    <Grid>
+                        <TextBlock x:Name="GeodataDateText" Text="База геоданных: Встроенная" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Name="UpdateGeodataBtn" Content="Обновить" HorizontalAlignment="Right"
+                                Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11"
+                                Click="OnUpdateGeodataClick"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Windows Behavior Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="Автозапуск вместе с Windows" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Запускать клиент свёрнутым в трей при входе в систему" TextWrapping="Wrap"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox x:Name="AutoStartSwitch" Grid.Column="1" Style="{StaticResource SwitchCheckBoxStyle}"
+                                  VerticalAlignment="Center" Click="OnAutoStartToggle"/>
+                    </Grid>
+
+                    <Border Height="1" Background="{StaticResource OutlineBrush}" Margin="0,0,0,12"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="Сворачивать в системный трей" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="При закрытии окна VPN продолжит работать в фоне" TextWrapping="Wrap"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <CheckBox x:Name="MinimizeTraySwitch" Grid.Column="1" Style="{StaticResource SwitchCheckBoxStyle}"
+                                  VerticalAlignment="Center" Click="OnMinimizeTrayToggle"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Version & GitHub Updates Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Версия приложения" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock x:Name="VersionText" Text="v0.1.0 BETA" FontSize="12"
+                                       Foreground="{StaticResource AccentHoverBrush}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <Button x:Name="CheckUpdatesBtn" Content="Проверить обновления на GitHub"
+                            Style="{StaticResource SecondaryButtonStyle}" Click="OnCheckUpdatesClick"/>
+                    <TextBlock x:Name="UpdateStatusText" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11"
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Account & Links -->
+            <Grid Margin="0,2,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Веб-кабинет" Style="{StaticResource SecondaryButtonStyle}" Click="OnOpenCabinetClick"/>
+                <Button Grid.Column="2" Content="Поддержка" Style="{StaticResource SecondaryButtonStyle}" Click="OnOpenSupportClick"/>
+            </Grid>
+
+            <Button Content="Выйти из аккаунта" Style="{StaticResource PrimaryButtonStyle}"
+                    Background="#3B111C" Click="OnLogoutClick"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
