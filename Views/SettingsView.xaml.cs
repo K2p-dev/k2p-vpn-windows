@@ -212,6 +212,15 @@ public partial class SettingsView : System.Windows.Controls.UserControl
         App.Storage.Update(s => s.MinimizeToTray = enabled);
     }
 
+    private void OnOpenDebugLogsClick(object sender, RoutedEventArgs e)
+    {
+        var win = new DebugLogWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        win.Show();
+    }
+
     private async void OnCheckUpdatesClick(object sender, RoutedEventArgs e)
     {
         CheckUpdatesBtn.IsEnabled = false;

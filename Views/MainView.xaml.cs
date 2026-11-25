@@ -189,7 +189,8 @@ public partial class MainView : System.Windows.Controls.UserControl
         ConnectBtn.ApplyTemplate();
         var outer = ConnectBtn.Template?.FindName("OuterCircle", ConnectBtn) as Ellipse;
         var label = ConnectBtn.Template?.FindName("PowerLabel", ConnectBtn) as TextBlock;
-        var icon = ConnectBtn.Template?.FindName("PowerIcon", ConnectBtn) as TextBlock;
+        var powerPath = ConnectBtn.Template?.FindName("PowerIconPath", ConnectBtn) as System.Windows.Shapes.Path;
+        var stopRect = ConnectBtn.Template?.FindName("StopIconRect", ConnectBtn) as System.Windows.Shapes.Rectangle;
         var glow = ConnectBtn.Template?.FindName("GlowEffect", ConnectBtn) as DropShadowEffect;
 
         switch (state)
@@ -200,7 +201,8 @@ public partial class MainView : System.Windows.Controls.UserControl
                     outer.SetResourceReference(Shape.StrokeProperty, "AccentBrush");
                     outer.SetResourceReference(Shape.FillProperty, "CardVariantBrush");
                 }
-                icon?.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextOnPageBrush");
+                if (powerPath is not null) powerPath.Visibility = Visibility.Collapsed;
+                if (stopRect is not null) stopRect.Visibility = Visibility.Visible;
                 if (label is not null)
                 {
                     label.Text = "ПОДКЛЮЧЕНО";
@@ -212,6 +214,12 @@ public partial class MainView : System.Windows.Controls.UserControl
 
             case VpnConnectionState.Connecting:
                 outer?.SetResourceReference(Shape.StrokeProperty, "WarningBrush");
+                if (powerPath is not null)
+                {
+                    powerPath.Visibility = Visibility.Visible;
+                    powerPath.SetResourceReference(Shape.StrokeProperty, "WarningBrush");
+                }
+                if (stopRect is not null) stopRect.Visibility = Visibility.Collapsed;
                 if (label is not null)
                 {
                     label.Text = "ПОДКЛЮЧЕНИЕ...";
@@ -226,7 +234,12 @@ public partial class MainView : System.Windows.Controls.UserControl
                     outer.SetResourceReference(Shape.StrokeProperty, "OutlineBrush");
                     outer.SetResourceReference(Shape.FillProperty, "CardBrush");
                 }
-                icon?.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
+                if (powerPath is not null)
+                {
+                    powerPath.Visibility = Visibility.Visible;
+                    powerPath.SetResourceReference(Shape.StrokeProperty, "TextPrimaryBrush");
+                }
+                if (stopRect is not null) stopRect.Visibility = Visibility.Collapsed;
                 if (label is not null)
                 {
                     label.Text = "ПОДКЛЮЧИТЬ";

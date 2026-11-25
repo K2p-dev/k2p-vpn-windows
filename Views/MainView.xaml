@@ -30,10 +30,17 @@
                                         </Ellipse.Effect>
                                     </Ellipse>
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                        <TextBlock x:Name="PowerIcon" Text="⏻" FontSize="42" FontWeight="Bold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+                                        <Grid Width="38" Height="38" HorizontalAlignment="Center">
+                                            <Path x:Name="PowerIconPath"
+                                                  Data="M 12,3 L 12,12 M 7.05,5.64 A 8,8 0 1 0 16.95,5.64"
+                                                  Stretch="Uniform" Stroke="{DynamicResource TextPrimaryBrush}"
+                                                  StrokeThickness="2.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                            <Rectangle x:Name="StopIconRect" Visibility="Collapsed"
+                                                       Width="20" Height="20" RadiusX="4" RadiusY="4"
+                                                       Fill="{DynamicResource AccentTextOnPageBrush}"/>
+                                        </Grid>
                                         <TextBlock x:Name="PowerLabel" Text="ПОДКЛЮЧИТЬ" FontSize="11" FontWeight="Bold"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
                                     </StackPanel>
                                 </Grid>
                                 <ControlTemplate.Triggers>

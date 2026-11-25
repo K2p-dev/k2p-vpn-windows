@@ -131,7 +131,7 @@ public static partial class SubscriptionParser
         var xhttpExtra = query["extra"];
         var fp = query["fp"];
 
-        var resolvedNet = string.IsNullOrWhiteSpace(network) ? "xhttp" : network;
+        var resolvedNet = string.IsNullOrWhiteSpace(network) || network == "splithttp" ? "xhttp" : network;
         var resolvedSec = string.IsNullOrWhiteSpace(security) ? (!string.IsNullOrWhiteSpace(pbk) ? "reality" : "tls") : security;
         var label = $"VLESS • {resolvedNet.ToUpperInvariant()} • {resolvedSec.ToUpperInvariant()}";
 
