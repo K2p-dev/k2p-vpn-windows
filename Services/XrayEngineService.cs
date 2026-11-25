@@ -14,6 +14,11 @@ namespace K2pVpnWindows.Services;
 public sealed class XrayEngineService : IDisposable
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    private static readonly JsonSerializerOptions JsonOutputOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+    };
     private readonly SettingsStorageService _storage;
     private readonly object _logLock = new();
     private readonly List<string> _recentLogs = [];
@@ -855,7 +860,7 @@ public sealed class XrayEngineService : IDisposable
             ["rules"] = rules
         };
 
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        return root.ToJsonString(JsonOutputOptions);
     }
 
     private static JsonObject BuildVlessOutbound(VpnServerNode node)

@@ -13,7 +13,8 @@ public sealed class K2pApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
     };
 
     // Single pooled SocketsHttpHandler shared across the application lifetime
