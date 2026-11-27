@@ -17,6 +17,7 @@ public sealed class XrayEngineService : IDisposable
     private static readonly JsonSerializerOptions JsonOutputOptions = new()
     {
         WriteIndented = true,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
     };
     private readonly SettingsStorageService _storage;
