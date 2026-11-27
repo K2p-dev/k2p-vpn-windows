@@ -384,7 +384,7 @@ public partial class MainView : System.Windows.Controls.UserControl
     {
         var tasks = _nodes.Select(async node =>
         {
-            node.PingMs = await XrayEngineService.MeasureTcpPingAsync(node.Host, node.Port);
+            node.PingMs = await XrayEngineService.MeasureNodePingAsync(node);
         });
         await Task.WhenAll(tasks);
         ApplySelectedNodeUI();

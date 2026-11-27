@@ -16,7 +16,7 @@ public static partial class AppLogger
 
     public static event Action<LogEntry>? LogAdded;
 
-    [GeneratedRegex(@"(""(?:id|uuid|publicKey|public_key|auth|password|token)""\s*:\s*"")[^""]*("")", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(""(?:id|uuid|publicKey|public_key|auth|user|pass|username|password|token)""\s*:\s*"")[^""]*("")", RegexOptions.IgnoreCase)]
     private static partial Regex JsonSecretRegex();
 
     [GeneratedRegex(@"(Bearer\s+)[A-Za-z0-9\-_\.]+", RegexOptions.IgnoreCase)]

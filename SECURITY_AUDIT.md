@@ -1,4 +1,4 @@
-# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.2`)
+# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.4`)
 
 Дата аудита: 2026-11-27  
 Область проверки: `K2pVpnWindows` (.NET 8 WPF, `Services/`, `Config/`, `Views/`)
@@ -33,8 +33,8 @@
   - Конфиг `xray-runtime.json` формируется исключительно через AST-объекты `System.Text.Json.Nodes` (`JsonObject`, `JsonArray`), что автоматически экранирует любые спецсимволы в строках, комментариях к серверам и параметрах подписки, исключая JSON-инъекции и внедрение сторонних `outbound`/правил маршрутизации.
   - Перед генерацией конфига выполняется валидация `Host` (непустой, без управляющих символов) и `Port` (`1..65535`).
   - Конфиги записываются строго в UTF-8 без BOM (`new UTF8Encoding(false)`).
-  - При логировании в `AppLogger` поля `id`, `uuid`, `publicKey`, `public_key`, `auth`, `password`, `token` и `Bearer ...` автоматически маскируются (`***`) как для `[XRAY]`, так и для `[SING-BOX]` и при экспорте в `.txt`.
-  - В `SingBoxConfigBuilder` все локальные `socks` и `http` inbound-интерфейсы привязаны строго к `127.0.0.1`.
+  - При логировании в `AppLogger` поля `id`, `uuid`, `publicKey`, `public_key`, `auth`, `user`, `pass`, `username`, `password`, `token` и `Bearer ...` автоматически маскируются (`***`) для `[SING-BOX]`, `[XRAY]`, `[PING]`, `[OTA]` и при экспорте в `.txt`.
+  - В `SingBoxConfigBuilder` все локальные `socks`, `http` и пингер-порты привязаны строго к `127.0.0.1`; каскадный мост `singbox-tun -> Xray` защищён случайным одноразовым логином/паролем (`RandomNumberGenerator`), а утечки DNS заблокированы (`hijack-dns`, `strict_route: true`, `strategy: "ipv4_only"`).
   - Установщик `installer.iss` устанавливает приложение и бинарники `Core/` в защищённую директорию `{autopf}\K2pVpn` (`Program Files`), предотвращая подмену бинарников непривилегированными пользователями, и корректно завершает процессы перед обновлением/удалением.
   - OTA-обновление (`WindowsIntegrationService.DownloadAndApplyUpdateAsync`): разрешает загрузку `K2pVpn-Update-*.zip` строго по `https://` с доверенных доменов GitHub (`github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `codeload.github.com`), проверяет SHA-256 контрольную сумму (при наличии `.sha256`), защищено от **Zip Slip** (`Path.GetFullPath` внутри `staging\`) и запускает изолированный `updater.ps1` с экранированными путями.
   - В `WindowsIntegrationService.OpenUrlInBrowser` разрешены только схемы `https://` и `http://` (защита от инъекции сторонних URI-схем).

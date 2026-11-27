@@ -21,7 +21,8 @@ public static class SingBoxConfigBuilder
         bool bypassRussia,
         int socksPort,
         int httpPort,
-        IReadOnlyList<string>? exclusions = null)
+        IReadOnlyList<string>? exclusions = null,
+        (int SocksPort, string Username, string Password)? upstreamSocks = null)
     {
         var dnsServers = new JsonArray
         {
@@ -61,7 +62,7 @@ public static class SingBoxConfigBuilder
             {
                 ["type"] = "tun",
                 ["tag"] = "tun-in",
-                ["interface_name"] = "k2p-tun",
+                ["interface_name"] = "singbox-tun",
                 ["address"] = new JsonArray("172.19.0.1/30"),
                 ["mtu"] = 1500,
                 ["auto_route"] = true,
@@ -88,11 +89,29 @@ public static class SingBoxConfigBuilder
             });
         }
 
-        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
+        JsonObject proxyOutbound;
+        if (upstreamSocks.HasValue)
+        {
+            // Cascade mode: singbox-tun -> local authenticated Xray SOCKS5 bridge
+            proxyOutbound = new JsonObject
+            {
+                ["type"] = "socks",
+                ["tag"] = "proxy",
+                ["server"] = "127.0.0.1",
+                ["server_port"] = upstreamSocks.Value.SocksPort,
+                ["username"] = upstreamSocks.Value.Username,
+                ["password"] = upstreamSocks.Value.Password,
+                ["version"] = "5"
+            };
+        }
+        else
+        {
+            proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
                             node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
                             node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
-            ? BuildHysteria2Outbound(node)
-            : BuildVlessOutbound(node);
+                ? BuildHysteria2Outbound(node)
+                : BuildVlessOutbound(node);
+        }
 
         var outbounds = new JsonArray
         {
@@ -153,6 +172,41 @@ public static class SingBoxConfigBuilder
                 ["auto_detect_interface"] = true,
                 ["default_domain_resolver"] = bypassRussia ? "dns-local" : "dns-remote",
                 ["rules"] = routeRules,
+                ["final"] = "proxy"
+            }
+        };
+
+        return root.ToJsonString(JsonOptions);
+    }
+
+    public static string BuildForPing(VpnServerNode node, int socksPort)
+    {
+        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
+                            node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
+                            node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
+            ? BuildHysteria2Outbound(node)
+            : BuildVlessOutbound(node);
+
+        var root = new JsonObject
+        {
+            ["log"] = new JsonObject { ["level"] = "error" },
+            ["inbounds"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "socks",
+                    ["tag"] = "socks-in",
+                    ["listen"] = "127.0.0.1",
+                    ["listen_port"] = socksPort
+                }
+            },
+            ["outbounds"] = new JsonArray
+            {
+                proxyOutbound,
+                new JsonObject { ["type"] = "direct", ["tag"] = "direct" }
+            },
+            ["route"] = new JsonObject
+            {
                 ["final"] = "proxy"
             }
         };
