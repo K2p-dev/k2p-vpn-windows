@@ -6,6 +6,12 @@ public enum VpnMode
     SystemProxy
 }
 
+public enum AppVpnCore
+{
+    SingBox,
+    Xray
+}
+
 public enum VpnConnectionState
 {
     Disconnected,
@@ -83,6 +89,7 @@ public sealed class LocalAppSettings
     public string? SelectedServerId { get; set; }
     public string? HardwareId { get; set; }
     public VpnMode VpnMode { get; set; } = VpnMode.Tun;
+    public AppVpnCore VpnCore { get; set; } = AppVpnCore.SingBox;
     public bool BypassRussia { get; set; } = true;
     public List<string> BypassExclusions { get; set; } = [];
     public bool AutoStartWithWindows { get; set; }

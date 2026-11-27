@@ -50,6 +50,7 @@ public partial class DebugLogWindow : Window
     private void UpdateFilterButtons()
     {
         SetFilterBtn(FilterAllBtn, _activeFilter == "ALL");
+        SetFilterBtn(FilterSingBoxBtn, _activeFilter == "SING-BOX");
         SetFilterBtn(FilterXrayBtn, _activeFilter == "XRAY");
         SetFilterBtn(FilterTunBtn, _activeFilter == "TUN");
         SetFilterBtn(FilterRouteBtn, _activeFilter == "ROUTE");

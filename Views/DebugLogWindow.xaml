@@ -18,6 +18,7 @@
         <!-- Category Filter Bar -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
             <Button x:Name="FilterAllBtn" Content="Все" Style="{StaticResource PrimaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="ALL"/>
+            <Button x:Name="FilterSingBoxBtn" Content="sing-box" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="SING-BOX"/>
             <Button x:Name="FilterXrayBtn" Content="Xray" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="XRAY"/>
             <Button x:Name="FilterTunBtn" Content="TUN" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="TUN"/>
             <Button x:Name="FilterRouteBtn" Content="Сеть / Маршруты" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="ROUTE"/>

@@ -65,7 +65,7 @@
 
                 <!-- Mode Selector (Full mode) -->
                 <Border x:Name="ModeSelectorCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource OutlineBrush}"
-                        BorderThickness="1" CornerRadius="14" Padding="5" Margin="0,0,0,10">
+                        BorderThickness="1" CornerRadius="14" Padding="5" Margin="0,0,0,8">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -75,6 +75,24 @@
                                 Style="{StaticResource PrimaryButtonStyle}" Padding="8,8" FontSize="12"/>
                         <Button x:Name="ProxyModeBtn" Grid.Column="1" Content="Системный прокси" Click="OnProxyModeClick"
                                 Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="8,8" FontSize="12"/>
+                    </Grid>
+                </Border>
+
+                <!-- Core Selector (sing-box vs Xray) -->
+                <Border x:Name="CoreSelectorCard" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource OutlineBrush}"
+                        BorderThickness="1" CornerRadius="12" Padding="4" Margin="0,0,0,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Ядро:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="8,0,8,0"/>
+                        <Button x:Name="CoreSingBoxBtn" Grid.Column="1" Content="sing-box (TUN)" Click="OnCoreSingBoxClick"
+                                Style="{StaticResource PrimaryButtonStyle}" Padding="6,6" FontSize="11"/>
+                        <Button x:Name="CoreXrayBtn" Grid.Column="2" Content="Xray (XHTTP)" Click="OnCoreXrayClick"
+                                Style="{StaticResource SecondaryButtonStyle}" BorderThickness="0" Background="Transparent" Padding="6,6" FontSize="11"/>
                     </Grid>
                 </Border>
 

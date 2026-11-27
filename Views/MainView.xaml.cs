@@ -52,6 +52,7 @@ public partial class MainView : System.Windows.Controls.UserControl
 
         App.XrayEngine.StateChanged += state => Dispatcher.Invoke(() => UpdateConnectionVisuals(state));
         UpdateModeButtons();
+        UpdateCoreButtons();
         UpdateConnectionVisuals(App.XrayEngine.State);
     }
 
@@ -64,6 +65,7 @@ public partial class MainView : System.Windows.Controls.UserControl
         PulseRing.Height = isCompact ? 154 : 188;
 
         ModeSelectorCard.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        CoreSelectorCard.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         TrafficInfoText.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         CompactBypassCard.Visibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
         CompactBypassSwitch.IsChecked = App.Storage.Current.BypassRussia;
@@ -299,6 +301,31 @@ public partial class MainView : System.Windows.Controls.UserControl
         UpdateModeButtons();
         if (App.XrayEngine.State == VpnConnectionState.Connected && _selectedNode is not null)
             await App.XrayEngine.StartAsync(_selectedNode, VpnMode.SystemProxy, App.Storage.Current.BypassRussia);
+    }
+
+    private async void OnCoreSingBoxClick(object sender, RoutedEventArgs e)
+    {
+        if (App.Storage.Current.VpnCore == AppVpnCore.SingBox) return;
+        App.Storage.Update(s => s.VpnCore = AppVpnCore.SingBox);
+        UpdateCoreButtons();
+        if (App.XrayEngine.State == VpnConnectionState.Connected && _selectedNode is not null)
+            await App.XrayEngine.StartAsync(_selectedNode, App.Storage.Current.VpnMode, App.Storage.Current.BypassRussia);
+    }
+
+    private async void OnCoreXrayClick(object sender, RoutedEventArgs e)
+    {
+        if (App.Storage.Current.VpnCore == AppVpnCore.Xray) return;
+        App.Storage.Update(s => s.VpnCore = AppVpnCore.Xray);
+        UpdateCoreButtons();
+        if (App.XrayEngine.State == VpnConnectionState.Connected && _selectedNode is not null)
+            await App.XrayEngine.StartAsync(_selectedNode, App.Storage.Current.VpnMode, App.Storage.Current.BypassRussia);
+    }
+
+    private void UpdateCoreButtons()
+    {
+        var isSb = App.Storage.Current.VpnCore == AppVpnCore.SingBox;
+        SetModeBtnState(CoreSingBoxBtn, isSb);
+        SetModeBtnState(CoreXrayBtn, !isSb);
     }
 
     private void UpdateModeButtons()
