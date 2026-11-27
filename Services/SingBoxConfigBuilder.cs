@@ -74,9 +74,9 @@ public static class SingBoxConfigBuilder
                 ["tag"] = "tun-in",
                 ["interface_name"] = "singbox-tun",
                 ["address"] = new JsonArray("172.19.0.1/30"),
-                ["mtu"] = 1500,
+                ["mtu"] = 9000,
                 ["auto_route"] = true,
-                ["strict_route"] = true,
+                ["strict_route"] = false,
                 ["stack"] = "system"
             });
         }
@@ -120,6 +120,17 @@ public static class SingBoxConfigBuilder
 
         var routeRules = new JsonArray();
 
+        // v2rayN-style TUN self-IP loop rejection before process rules
+        if (mode == VpnMode.Tun)
+        {
+            routeRules.Add(new JsonObject
+            {
+                ["ip_cidr"] = new JsonArray("172.19.0.1/32"),
+                ["action"] = "reject",
+                ["method"] = "drop"
+            });
+        }
+
         // v2rayN-style core process protection: hijack DNS of protected cores first, then route their traffic direct
         if (upstreamSocks.HasValue)
         {
@@ -140,19 +151,19 @@ public static class SingBoxConfigBuilder
         routeRules.Add(new JsonObject { ["action"] = "sniff" });
         routeRules.Add(new JsonObject
         {
-            ["protocol"] = new JsonArray("dns"),
-            ["action"] = "hijack-dns"
+            ["type"] = "logical",
+            ["mode"] = "or",
+            ["action"] = "hijack-dns",
+            ["rules"] = new JsonArray
+            {
+                new JsonObject { ["port"] = new JsonArray(53) },
+                new JsonObject { ["protocol"] = new JsonArray("dns") }
+            }
         });
 
-        // v2rayN-style TUN noise & self-IP loop rejection
+        // v2rayN-style TUN noise rejection
         if (mode == VpnMode.Tun)
         {
-            routeRules.Add(new JsonObject
-            {
-                ["ip_cidr"] = new JsonArray("172.19.0.1/32"),
-                ["action"] = "reject",
-                ["method"] = "drop"
-            });
             routeRules.Add(new JsonObject
             {
                 ["network"] = new JsonArray("udp"),

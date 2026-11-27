@@ -14,7 +14,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.3.7</Version>
+    <Version>0.3.8</Version>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <AssemblyTitle>Как 2 пальца (K2P VPN BETA)</AssemblyTitle>
     <Product>Как 2 пальца BETA</Product>
