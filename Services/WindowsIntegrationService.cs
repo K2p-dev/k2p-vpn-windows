@@ -207,7 +207,12 @@ public sealed class WindowsIntegrationService
     {
         try
         {
-            Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+            {
+                return;
+            }
+            Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
         }
         catch
         {

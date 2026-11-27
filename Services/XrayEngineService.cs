@@ -49,7 +49,7 @@ public sealed class XrayEngineService : IDisposable
     public async Task<bool> StartAsync(VpnServerNode node, VpnMode mode, bool bypassRussia)
     {
         await StopAsync();
-        KillStaleCoreProcesses();
+        await KillStaleCoreProcessesAsync();
 
         AppLogger.Log("APP", $"Запуск подключения: {node.Name} ({node.ProtocolLabel}), режим={mode}, обходРФ={bypassRussia}");
 
@@ -306,7 +306,14 @@ public sealed class XrayEngineService : IDisposable
         await RunNetToolLoggedAsync("netsh", ["interface", "ip", "set", "dns", "name=k2p-tun", "static", "1.1.1.1"]);
         await RunNetToolLoggedAsync("netsh", ["interface", "ip", "add", "dns", "name=k2p-tun", "8.8.8.8", "index=2"]);
 
-        var tunIfIndex = GetInterfaceIndex("k2p-tun");
+        int? tunIfIndex = null;
+        for (var i = 0; i < 6; i++)
+        {
+            tunIfIndex = GetInterfaceIndex("k2p-tun");
+            if (tunIfIndex.HasValue) break;
+            await Task.Delay(250);
+        }
+
         if (tunIfIndex.HasValue)
         {
             var idxStr = tunIfIndex.Value.ToString();
@@ -336,14 +343,21 @@ public sealed class XrayEngineService : IDisposable
 
         try
         {
+            // 1. Delete routes and restore system proxy first
             CleanupNetworkState();
 
-            if (_tunProcess is not null && !_tunProcess.HasExited)
+            // 2. Stop hev-socks5-tunnel and wait for Wintun adapter teardown before stopping Xray
+            if (_tunProcess is not null)
             {
-                _tunProcess.Kill(entireProcessTree: true);
-                await _tunProcess.WaitForExitAsync();
+                if (!_tunProcess.HasExited)
+                {
+                    _tunProcess.Kill(entireProcessTree: true);
+                    await _tunProcess.WaitForExitAsync();
+                }
+                await Task.Delay(250);
             }
 
+            // 3. Stop xray.exe after TUN adapter is closed
             if (_xrayProcess is not null && !_xrayProcess.HasExited)
             {
                 _xrayProcess.Kill(entireProcessTree: true);
@@ -422,10 +436,11 @@ public sealed class XrayEngineService : IDisposable
         return false;
     }
 
-    private static void KillStaleCoreProcesses()
+    private static async Task KillStaleCoreProcessesAsync()
     {
         var coreFullDir = Path.GetFullPath(AppConfig.CoreDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        foreach (var name in new[] { "xray", "hev-socks5-tunnel-win64" })
+        var killedTun = false;
+        foreach (var name in new[] { "hev-socks5-tunnel-win64", "xray" })
         {
             try
             {
@@ -439,7 +454,8 @@ public sealed class XrayEngineService : IDisposable
                         {
                             AppLogger.Log("APP", $"Завершён зависший процесс {name} (PID={proc.Id})");
                             proc.Kill(entireProcessTree: true);
-                            proc.WaitForExit(1500);
+                            proc.WaitForExit(2000);
+                            if (name == "hev-socks5-tunnel-win64") killedTun = true;
                         }
                     }
                     catch
@@ -457,6 +473,7 @@ public sealed class XrayEngineService : IDisposable
                 // Ignore enumeration errors
             }
         }
+        if (killedTun) await Task.Delay(300);
     }
 
     private sealed record PhysicalNetInfo(string Name, string LocalIp, string GatewayIp, int IfIndex);
@@ -706,8 +723,8 @@ public sealed class XrayEngineService : IDisposable
                 ["skipFallback"] = true
             });
         }
-        dnsServers.Add("1.1.1.1");
-        dnsServers.Add("8.8.8.8");
+        dnsServers.Add("tcp://1.1.1.1");
+        dnsServers.Add("tcp://8.8.8.8");
 
         var root = new JsonObject
         {
@@ -773,7 +790,16 @@ public sealed class XrayEngineService : IDisposable
             new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
         };
 
-        var rules = new JsonArray();
+        var rules = new JsonArray
+        {
+            // Block IPv6 traffic when TUN operates in IPv4-only mode to avoid non-IPv4 sendThrough errors
+            new JsonObject
+            {
+                ["type"] = "field",
+                ["ip"] = new JsonArray("::/0"),
+                ["outboundTag"] = "block"
+            }
+        };
 
         if (bypassRussia)
         {
