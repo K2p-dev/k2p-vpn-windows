@@ -32,28 +32,36 @@ public static class SingBoxConfigBuilder
                 ["type"] = "tcp",
                 ["server"] = "1.1.1.1",
                 ["detour"] = "proxy"
-            }
-        };
-
-        if (bypassRussia)
-        {
-            dnsServers.Add(new JsonObject
+            },
+            new JsonObject
             {
                 ["tag"] = "dns-local",
                 ["type"] = "udp",
                 ["server"] = "77.88.8.8"
-            });
-        }
+            }
+        };
 
-        var dnsRules = new JsonArray();
+        var bypassDnsSuffixes = new JsonArray { ".proksbro.space" };
+        if (!string.IsNullOrWhiteSpace(node.Host) && !IPAddress.TryParse(node.Host, out _) &&
+            !node.Host.EndsWith(".proksbro.space", StringComparison.OrdinalIgnoreCase))
+        {
+            bypassDnsSuffixes.Add(node.Host);
+        }
         if (bypassRussia)
         {
-            dnsRules.Add(new JsonObject
-            {
-                ["domain_suffix"] = new JsonArray(".ru", ".su", ".xn--p1ai"),
-                ["server"] = "dns-local"
-            });
+            bypassDnsSuffixes.Add(".ru");
+            bypassDnsSuffixes.Add(".su");
+            bypassDnsSuffixes.Add(".xn--p1ai");
         }
+
+        var dnsRules = new JsonArray
+        {
+            new JsonObject
+            {
+                ["domain_suffix"] = bypassDnsSuffixes,
+                ["server"] = "dns-local"
+            }
+        };
 
         var inbounds = new JsonArray();
         if (mode == VpnMode.Tun)
@@ -122,9 +130,32 @@ public static class SingBoxConfigBuilder
         var routeRules = new JsonArray
         {
             new JsonObject { ["action"] = "sniff" },
-            new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" },
-            new JsonObject { ["ip_is_private"] = true, ["outbound"] = "direct" }
+            new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" }
         };
+
+        // Exclude xray.exe and VPN server domain from singbox-tun to prevent routing/DNS loop
+        if (upstreamSocks.HasValue)
+        {
+            routeRules.Add(new JsonObject
+            {
+                ["process_name"] = new JsonArray("xray.exe"),
+                ["outbound"] = "direct"
+            });
+        }
+
+        var serverBypassDomains = new JsonArray { ".proksbro.space" };
+        if (!string.IsNullOrWhiteSpace(node.Host) && !IPAddress.TryParse(node.Host, out _) &&
+            !node.Host.EndsWith(".proksbro.space", StringComparison.OrdinalIgnoreCase))
+        {
+            serverBypassDomains.Add(node.Host);
+        }
+        routeRules.Add(new JsonObject
+        {
+            ["domain_suffix"] = serverBypassDomains,
+            ["outbound"] = "direct"
+        });
+
+        routeRules.Add(new JsonObject { ["ip_is_private"] = true, ["outbound"] = "direct" });
 
         if (exclusions is { Count: > 0 })
         {
@@ -170,7 +201,7 @@ public static class SingBoxConfigBuilder
             ["route"] = new JsonObject
             {
                 ["auto_detect_interface"] = true,
-                ["default_domain_resolver"] = bypassRussia ? "dns-local" : "dns-remote",
+                ["default_domain_resolver"] = "dns-local",
                 ["rules"] = routeRules,
                 ["final"] = "proxy"
             }

@@ -268,6 +268,11 @@ public sealed class XrayEngineService : IDisposable
 
         var assetDir = ResolveGeodataDirectory();
         var hasGeodata = HasValidGeodata(assetDir);
+        var physicalLocalIp = upstreamAuth.HasValue ? GetActivePhysicalInterfaceIp() : null;
+        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
+        {
+            AppLogger.Log("XRAY", $"Физический IP для sendThrough: {physicalLocalIp}");
+        }
 
         var configJson = BuildXrayConfig(
             node,
@@ -275,7 +280,8 @@ public sealed class XrayEngineService : IDisposable
             socksPort,
             enableSystemProxy ? httpPort : 0,
             upstreamAuth,
-            _storage.Current.BypassExclusions);
+            _storage.Current.BypassExclusions,
+            physicalLocalIp);
 
         await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
         AppLogger.Log("XRAY", $"xray-runtime.json:\n{AppLogger.MaskSecrets(configJson)}");
@@ -643,13 +649,40 @@ public sealed class XrayEngineService : IDisposable
                File.Exists(geosite) && new FileInfo(geosite).Length > 50 * 1024;
     }
 
+    private static string? GetActivePhysicalInterfaceIp()
+    {
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+                if (nic.Name.Contains("singbox-tun", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Name.Contains("k2p-tun", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains("Wintun", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var ipProps = nic.GetIPProperties();
+                var hasGw = ipProps.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.Any.Equals(g.Address));
+                if (!hasGw) continue;
+
+                var localIp = ipProps.UnicastAddresses
+                    .FirstOrDefault(u => u.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(u.Address))
+                    ?.Address.ToString();
+                if (!string.IsNullOrWhiteSpace(localIp)) return localIp;
+            }
+        }
+        catch { }
+        return null;
+    }
+
     public static string BuildXrayConfig(
         VpnServerNode node,
         bool bypassRussia,
         int socksPort,
         int httpPort,
         (string Username, string Password)? upstreamAuth = null,
-        IReadOnlyList<string>? exclusions = null)
+        IReadOnlyList<string>? exclusions = null,
+        string? physicalLocalIp = null)
     {
         var socksSettings = new JsonObject
         {
@@ -711,14 +744,25 @@ public sealed class XrayEngineService : IDisposable
             ? BuildHysteria2Outbound(node)
             : BuildVlessOutbound(node);
 
+        var directOutbound = new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" };
+        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
+        {
+            proxyOutbound["sendThrough"] = physicalLocalIp;
+            directOutbound["sendThrough"] = physicalLocalIp;
+        }
+
         var root = new JsonObject
         {
             ["log"] = new JsonObject { ["loglevel"] = "info" },
+            ["dns"] = new JsonObject
+            {
+                ["servers"] = new JsonArray("77.88.8.8", "1.1.1.1")
+            },
             ["inbounds"] = inbounds,
             ["outbounds"] = new JsonArray
             {
                 proxyOutbound,
-                new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" },
+                directOutbound,
                 new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
             }
         };
