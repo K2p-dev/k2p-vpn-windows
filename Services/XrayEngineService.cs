@@ -50,6 +50,10 @@ public sealed class XrayEngineService : IDisposable
     {
         await StopAsync();
         await KillStaleCoreProcessesAsync();
+        if (mode == VpnMode.Tun)
+        {
+            CleanupStaleTunProfiles();
+        }
 
         AppLogger.Log("APP", $"Запуск подключения: {node.Name} ({node.ProtocolLabel}), режим={mode}, обходРФ={bypassRussia}");
 
@@ -378,6 +382,7 @@ public sealed class XrayEngineService : IDisposable
             _connectedAtUtc = null;
             CurrentSocksPort = 0;
             CurrentHttpPort = 0;
+            CleanupStaleTunProfiles();
             State = VpnConnectionState.Disconnected;
             StateChanged?.Invoke(State);
             AppLogger.Log("APP", "VPN остановлен.");
@@ -434,6 +439,31 @@ public sealed class XrayEngineService : IDisposable
             }
         }
         return false;
+    }
+
+    private static void CleanupStaleTunProfiles()
+    {
+        try
+        {
+            const string profilesPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles";
+            using var profilesKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(profilesPath, writable: true);
+            if (profilesKey is null) return;
+
+            foreach (var subKeyName in profilesKey.GetSubKeyNames())
+            {
+                using var sub = profilesKey.OpenSubKey(subKeyName, writable: false);
+                var name = sub?.GetValue("ProfileName")?.ToString();
+                if (!string.IsNullOrWhiteSpace(name) &&
+                    name.StartsWith("k2p-tun", StringComparison.OrdinalIgnoreCase))
+                {
+                    profilesKey.DeleteSubKeyTree(subKeyName, throwOnMissingSubKey: false);
+                }
+            }
+        }
+        catch
+        {
+            // Best effort cleanup of stale Windows network profiles
+        }
     }
 
     private static async Task KillStaleCoreProcessesAsync()
@@ -916,29 +946,37 @@ public sealed class XrayEngineService : IDisposable
             case "xhttp":
                 var xhttp = new JsonObject
                 {
-                    ["path"] = string.IsNullOrWhiteSpace(node.Path) ? "/" : Uri.UnescapeDataString(node.Path),
-                    ["mode"] = string.IsNullOrWhiteSpace(node.XhttpMode) ? "auto" : node.XhttpMode
+                    ["path"] = string.IsNullOrWhiteSpace(node.Path) ? "/" : SafeUnescape(node.Path),
+                    ["host"] = string.IsNullOrWhiteSpace(node.HostHeader) ? "" : SafeUnescape(node.HostHeader),
+                    ["mode"] = string.IsNullOrWhiteSpace(node.XhttpMode) ? "auto" : SafeUnescape(node.XhttpMode)
                 };
-                if (!string.IsNullOrWhiteSpace(node.HostHeader)) xhttp["host"] = node.HostHeader;
                 if (!string.IsNullOrWhiteSpace(node.XhttpExtra))
                 {
-                    try { xhttp["extra"] = JsonNode.Parse(Uri.UnescapeDataString(node.XhttpExtra)); } catch { }
+                    try
+                    {
+                        var parsedExtra = JsonNode.Parse(SafeUnescape(node.XhttpExtra));
+                        if (parsedExtra is not null) xhttp["extra"] = parsedExtra;
+                    }
+                    catch
+                    {
+                        // Ignore malformed extra JSON
+                    }
                 }
                 stream["xhttpSettings"] = xhttp;
                 break;
             case "ws":
                 var ws = new JsonObject
                 {
-                    ["path"] = string.IsNullOrWhiteSpace(node.Path) ? "/" : Uri.UnescapeDataString(node.Path)
+                    ["path"] = string.IsNullOrWhiteSpace(node.Path) ? "/" : SafeUnescape(node.Path)
                 };
                 if (!string.IsNullOrWhiteSpace(node.HostHeader))
-                    ws["headers"] = new JsonObject { ["Host"] = node.HostHeader };
+                    ws["headers"] = new JsonObject { ["Host"] = SafeUnescape(node.HostHeader) };
                 stream["wsSettings"] = ws;
                 break;
             case "grpc":
                 stream["grpcSettings"] = new JsonObject
                 {
-                    ["serviceName"] = node.ServiceName ?? node.Path ?? ""
+                    ["serviceName"] = SafeUnescape(node.ServiceName ?? node.Path ?? "")
                 };
                 break;
         }
@@ -947,19 +985,19 @@ public sealed class XrayEngineService : IDisposable
         {
             stream["realitySettings"] = new JsonObject
             {
-                ["serverName"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : node.Sni,
-                ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : node.Fp,
-                ["publicKey"] = node.Pbk ?? "",
-                ["shortId"] = node.Sid ?? "",
-                ["spiderX"] = string.IsNullOrWhiteSpace(node.Spx) ? "/" : Uri.UnescapeDataString(node.Spx)
+                ["serverName"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : SafeUnescape(node.Fp),
+                ["publicKey"] = SafeUnescape(node.Pbk ?? ""),
+                ["shortId"] = SafeUnescape(node.Sid ?? ""),
+                ["spiderX"] = string.IsNullOrWhiteSpace(node.Spx) ? "/" : SafeUnescape(node.Spx)
             };
         }
         else if (security == "tls")
         {
             stream["tlsSettings"] = new JsonObject
             {
-                ["serverName"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : node.Sni,
-                ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : node.Fp
+                ["serverName"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : SafeUnescape(node.Fp)
             };
         }
 
@@ -981,6 +1019,18 @@ public sealed class XrayEngineService : IDisposable
             },
             ["streamSettings"] = stream
         };
+    }
+
+    private static string SafeUnescape(string value)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch
+        {
+            return value;
+        }
     }
 
     private static JsonObject BuildHysteria2Outbound(VpnServerNode node)

@@ -16,13 +16,17 @@ public static partial class AppLogger
 
     public static event Action<LogEntry>? LogAdded;
 
-    [GeneratedRegex(@"(""(?:id|publicKey|auth|password)""\s*:\s*"")[^""]*("")", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(""(?:id|publicKey|auth|password|token)""\s*:\s*"")[^""]*("")", RegexOptions.IgnoreCase)]
     private static partial Regex JsonSecretRegex();
+
+    [GeneratedRegex(@"(Bearer\s+)[A-Za-z0-9\-_\.]+", RegexOptions.IgnoreCase)]
+    private static partial Regex BearerTokenRegex();
 
     public static void Log(string category, string message)
     {
         if (string.IsNullOrWhiteSpace(message)) return;
-        var entry = new LogEntry(DateTime.Now, category.ToUpperInvariant(), message.TrimEnd());
+        var sanitized = MaskSecrets(message.TrimEnd());
+        var entry = new LogEntry(DateTime.Now, category.ToUpperInvariant(), sanitized);
         lock (LockObj)
         {
             if (Buffer.Count >= MaxEntries)
@@ -64,6 +68,9 @@ public static partial class AppLogger
         return sb.ToString();
     }
 
-    public static string MaskSecrets(string content) =>
-        JsonSecretRegex().Replace(content, "$1***$2");
+    public static string MaskSecrets(string content)
+    {
+        var masked = JsonSecretRegex().Replace(content, "$1***$2");
+        return BearerTokenRegex().Replace(masked, "$1***");
+    }
 }
