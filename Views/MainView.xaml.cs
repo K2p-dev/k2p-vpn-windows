@@ -400,6 +400,10 @@ public partial class MainView : System.Windows.Controls.UserControl
         SelectedNameText.Text = _selectedNode.Name;
         SelectedProtoText.Text = _selectedNode.ProtocolLabel;
         SelectedPingText.Text = _selectedNode.PingMs.HasValue ? $"{_selectedNode.PingMs} ms" : "— ms";
+
+        var effectiveCore = XrayEngineService.ResolveEffectiveCore(_selectedNode, App.Storage.Current.VpnCore);
+        SetModeBtnState(CoreSingBoxBtn, effectiveCore == AppVpnCore.SingBox);
+        SetModeBtnState(CoreXrayBtn, effectiveCore == AppVpnCore.Xray);
     }
 
     private void RefreshServerListItems()

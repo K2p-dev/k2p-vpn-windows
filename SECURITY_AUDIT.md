@@ -1,4 +1,4 @@
-# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.0`)
+# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.1`)
 
 Дата аудита: 2026-11-27  
 Область проверки: `K2pVpnWindows` (.NET 8 WPF, `Services/`, `Config/`, `Views/`)

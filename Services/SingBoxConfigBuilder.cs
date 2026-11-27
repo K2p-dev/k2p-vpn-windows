@@ -40,8 +40,7 @@ public static class SingBoxConfigBuilder
             {
                 ["tag"] = "dns-local",
                 ["type"] = "udp",
-                ["server"] = "77.88.8.8",
-                ["detour"] = "direct"
+                ["server"] = "77.88.8.8"
             });
         }
 
