@@ -229,10 +229,16 @@ public partial class SettingsView : System.Windows.Controls.UserControl
 
         try
         {
-            var (available, latestTag, downloadUrl, _) = await App.WinIntegration.CheckForUpdatesAsync();
+            var (available, latestTag, updateZipUrl, sha256Url, _) = await App.WinIntegration.CheckForUpdatesAsync();
             if (!available)
             {
                 UpdateStatusText.Text = $"У вас актуальная версия (v{AppConfig.AppVersion}).";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(updateZipUrl))
+            {
+                UpdateStatusText.Text = $"Найдена версия {latestTag}, но архив K2pVpn-Update-*.zip ещё не прикреплён.";
                 return;
             }
 
@@ -243,13 +249,17 @@ public partial class SettingsView : System.Windows.Controls.UserControl
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Information);
 
-            if (result == MessageBoxResult.Yes && !string.IsNullOrWhiteSpace(downloadUrl))
+            if (result == MessageBoxResult.Yes)
             {
-                UpdateStatusText.Text = "Скачивание обновления...";
-                await App.WinIntegration.DownloadAndApplyUpdateAsync(downloadUrl, () =>
+                UpdateStatusText.Text = "Скачивание и проверка обновления...";
+                var (ok, err) = await App.WinIntegration.DownloadAndApplyUpdateAsync(updateZipUrl, sha256Url, () =>
                 {
-                    Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+                    App.XrayEngine.StopAsync().GetAwaiter().GetResult();
                 });
+                if (!ok)
+                {
+                    UpdateStatusText.Text = err ?? "Ошибка установки обновления.";
+                }
             }
         }
         finally

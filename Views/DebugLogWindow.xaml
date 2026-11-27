@@ -22,6 +22,7 @@
             <Button x:Name="FilterXrayBtn" Content="Xray" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="XRAY"/>
             <Button x:Name="FilterTunBtn" Content="TUN" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="TUN"/>
             <Button x:Name="FilterRouteBtn" Content="Сеть / Маршруты" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="ROUTE"/>
+            <Button x:Name="FilterOtaBtn" Content="OTA" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Margin="0,0,6,0" Click="OnFilterClick" Tag="OTA"/>
             <Button x:Name="FilterAppBtn" Content="APP" Style="{StaticResource SecondaryButtonStyle}" Padding="12,6" FontSize="11" Click="OnFilterClick" Tag="APP"/>
         </StackPanel>
 

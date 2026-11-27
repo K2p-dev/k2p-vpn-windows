@@ -54,6 +54,7 @@ public partial class DebugLogWindow : Window
         SetFilterBtn(FilterXrayBtn, _activeFilter == "XRAY");
         SetFilterBtn(FilterTunBtn, _activeFilter == "TUN");
         SetFilterBtn(FilterRouteBtn, _activeFilter == "ROUTE");
+        SetFilterBtn(FilterOtaBtn, _activeFilter == "OTA");
         SetFilterBtn(FilterAppBtn, _activeFilter == "APP");
     }
 

@@ -500,7 +500,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var (available, latestTag, _, _) = await App.WinIntegration.CheckForUpdatesAsync();
+            var (available, latestTag, _, _, _) = await App.WinIntegration.CheckForUpdatesAsync();
             if (available)
             {
                 _trayIcon.ShowBalloonTip(5000, AppConfig.AppName,

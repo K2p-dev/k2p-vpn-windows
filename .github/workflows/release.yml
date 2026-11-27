@@ -29,7 +29,7 @@ jobs:
         run: |
           dotnet publish K2pVpnWindows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 
-      - name: Build Windows Installer (Inno Setup)
+      - name: Build Installer (Setup.exe) and OTA Archive (Update.zip)
         shell: pwsh
         run: |
           $tag = "${{ inputs.tag }}"
@@ -38,15 +38,33 @@ jobs:
           }
           $ver = $tag.TrimStart('v', 'V')
           New-Item -ItemType Directory -Force -Path "release_assets" | Out-Null
+
+          # 1. Compile Inno Setup installer
           iscc /DMyAppVersion="$ver" installer.iss
           Copy-Item "release_assets\K2pVpn-Setup-v${ver}.exe" "release_assets\K2pVpn-Setup.exe" -Force
+
+          # 2. Package OTA Update.zip (app + Core/, excluding .pdb)
+          $otaStage = "ota_stage"
+          New-Item -ItemType Directory -Force -Path $otaStage | Out-Null
+          Copy-Item "publish\K2P-VPN-Windows.exe" "$otaStage\K2P-VPN-Windows.exe" -Force
+          Copy-Item "publish\Core" "$otaStage\Core" -Recurse -Force
+          $updateZip = "release_assets\K2pVpn-Update-v${ver}.zip"
+          Compress-Archive -Path "$otaStage\*" -DestinationPath $updateZip -Force
+
+          # 3. Generate SHA-256 checksum for Update.zip
+          $hash = (Get-FileHash -Path $updateZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  K2pVpn-Update-v${ver}.zip" | Out-File -FilePath "$updateZip.sha256" -Encoding ascii -NoNewline
+
           Write-Output "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
       - name: Upload Actions Artifact (Backup)
         uses: actions/upload-artifact@v4
         with:
-          name: K2pVpn-Setup-${{ env.RELEASE_TAG }}
-          path: release_assets/*.exe
+          name: K2pVpn-Release-${{ env.RELEASE_TAG }}
+          path: |
+            release_assets/*.exe
+            release_assets/*.zip
+            release_assets/*.sha256
           retention-days: 14
 
       - name: Publish GitHub Release
@@ -60,7 +78,7 @@ jobs:
           (gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.draft == true) | .id' | xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/releases/{}") || true
 
           for attempt in 1 2 3 4 5; do
-            if gh release create "$TAG" --title "Как 2 пальца (K2P VPN) $TAG" --notes "Установщик Windows для релиза $TAG"; then
+            if gh release create "$TAG" --title "Как 2 пальца (K2P VPN) $TAG" --notes "Установщик (Setup.exe) и архив OTA-обновления (Update.zip) для релиза $TAG"; then
               break
             fi
             echo "gh release create failed (attempt $attempt), retrying in 15s..."
@@ -68,7 +86,7 @@ jobs:
             [ "$attempt" -eq 5 ] && exit 1
           done
 
-          for f in release_assets/*.exe; do
+          for f in release_assets/*.exe release_assets/*.zip release_assets/*.sha256; do
             echo "Uploading $f..."
             for attempt in 1 2 3 4 5; do
               if gh release upload "$TAG" "$f" --clobber; then

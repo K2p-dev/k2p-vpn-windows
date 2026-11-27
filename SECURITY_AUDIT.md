@@ -1,4 +1,4 @@
-# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.1`)
+# Отчёт по аудиту безопасности K2P VPN Windows (`v0.3.2`)
 
 Дата аудита: 2026-11-27  
 Область проверки: `K2pVpnWindows` (.NET 8 WPF, `Services/`, `Config/`, `Views/`)
@@ -36,6 +36,7 @@
   - При логировании в `AppLogger` поля `id`, `uuid`, `publicKey`, `public_key`, `auth`, `password`, `token` и `Bearer ...` автоматически маскируются (`***`) как для `[XRAY]`, так и для `[SING-BOX]` и при экспорте в `.txt`.
   - В `SingBoxConfigBuilder` все локальные `socks` и `http` inbound-интерфейсы привязаны строго к `127.0.0.1`.
   - Установщик `installer.iss` устанавливает приложение и бинарники `Core/` в защищённую директорию `{autopf}\K2pVpn` (`Program Files`), предотвращая подмену бинарников непривилегированными пользователями, и корректно завершает процессы перед обновлением/удалением.
+  - OTA-обновление (`WindowsIntegrationService.DownloadAndApplyUpdateAsync`): разрешает загрузку `K2pVpn-Update-*.zip` строго по `https://` с доверенных доменов GitHub (`github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `codeload.github.com`), проверяет SHA-256 контрольную сумму (при наличии `.sha256`), защищено от **Zip Slip** (`Path.GetFullPath` внутри `staging\`) и запускает изолированный `updater.ps1` с экранированными путями.
   - В `WindowsIntegrationService.OpenUrlInBrowser` разрешены только схемы `https://` и `http://` (защита от инъекции сторонних URI-схем).
   - В `MainWindow.TryGetSafeMediaPath` пути фоновых изображений/видео проверяются на локальность (запрещены UNC/сетевые URI), допустимые расширения и лимит размера (25 МБ для фото, 150 МБ для видео); изображения декодируются с `DecodePixelWidth = 920` и `CacheOption = OnLoad` без блокировки файла.
   - В TUN-режиме весь IPv6-трафик (`::/0`) блокируется через `block`, чтобы исключить утечку IPv6 мимо IPv4-туннеля.
