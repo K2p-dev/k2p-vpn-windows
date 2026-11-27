@@ -69,9 +69,9 @@ public sealed class XrayEngineService : IDisposable
         await KillStaleCoreProcessesAsync();
 
         var effectiveCore = ResolveEffectiveCore(node, preferredCore);
-        var isCascadeTun = mode == VpnMode.Tun && effectiveCore == AppVpnCore.Xray;
+        var isNativeXrayTun = mode == VpnMode.Tun && effectiveCore == AppVpnCore.Xray;
 
-        AppLogger.Log("APP", $"Запуск подключения: {node.Name} ({node.ProtocolLabel}), ядро={effectiveCore}, режим={mode}{(isCascadeTun ? " [Cascade singbox-tun -> Xray]" : "")}, обходРФ={bypassRussia}");
+        AppLogger.Log("APP", $"Запуск подключения: {node.Name} ({node.ProtocolLabel}), ядро={effectiveCore}, режим={mode}{(isNativeXrayTun ? " [Native xray_tun]" : "")}, обходРФ={bypassRussia}");
 
         var validationError = ValidateNode(node);
         if (validationError is not null)
@@ -98,17 +98,10 @@ public sealed class XrayEngineService : IDisposable
             bool ok;
             if (mode == VpnMode.Tun)
             {
-                if (isCascadeTun)
+                if (isNativeXrayTun)
                 {
-                    // Cascade: 1) Xray upstream SOCKS5 with random auth -> 2) sing-box native TUN (singbox-tun)
-                    var bridgeUser = "k2p_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
-                    var bridgePass = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-
-                    ok = await StartXrayCoreAsync(node, VpnMode.SystemProxy, bypassRussia, socksPort, httpPort, (bridgeUser, bridgePass), enableSystemProxy: false);
-                    if (ok)
-                    {
-                        ok = await StartSingBoxCoreAsync(node, VpnMode.Tun, bypassRussia, 0, 0, (socksPort, bridgeUser, bridgePass));
-                    }
+                    // v2rayN-style native Xray TUN (xray_tun) with autoOutboundsInterface="auto"
+                    ok = await StartXrayCoreAsync(node, VpnMode.Tun, bypassRussia, socksPort, httpPort, upstreamAuth: null, enableSystemProxy: false);
                 }
                 else
                 {
@@ -268,12 +261,7 @@ public sealed class XrayEngineService : IDisposable
 
         var assetDir = ResolveGeodataDirectory();
         var hasGeodata = HasValidGeodata(assetDir);
-        var physicalLocalIp = upstreamAuth.HasValue ? GetActivePhysicalInterfaceIp() : null;
-        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
-        {
-            AppLogger.Log("XRAY", $"Физический IP для sendThrough: {physicalLocalIp}");
-        }
-
+        var tunMode = mode == VpnMode.Tun;
         var configJson = BuildXrayConfig(
             node,
             bypassRussia && hasGeodata,
@@ -281,7 +269,8 @@ public sealed class XrayEngineService : IDisposable
             enableSystemProxy ? httpPort : 0,
             upstreamAuth,
             _storage.Current.BypassExclusions,
-            physicalLocalIp);
+            physicalLocalIp: null,
+            tunMode: tunMode);
 
         await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
         AppLogger.Log("XRAY", $"xray-runtime.json:\n{AppLogger.MaskSecrets(configJson)}");
@@ -695,7 +684,8 @@ public sealed class XrayEngineService : IDisposable
         int httpPort,
         (string Username, string Password)? upstreamAuth = null,
         IReadOnlyList<string>? exclusions = null,
-        string? physicalLocalIp = null)
+        string? physicalLocalIp = null,
+        bool tunMode = false)
     {
         var socksSettings = new JsonObject
         {
@@ -751,6 +741,30 @@ public sealed class XrayEngineService : IDisposable
             });
         }
 
+        if (tunMode)
+        {
+            inbounds.Add(new JsonObject
+            {
+                ["tag"] = "tun",
+                ["protocol"] = "tun",
+                ["settings"] = new JsonObject
+                {
+                    ["name"] = "xray_tun",
+                    ["MTU"] = 9000,
+                    ["gateway"] = new JsonArray("172.19.0.1/30"),
+                    ["dns"] = new JsonArray("1.1.1.1", "8.8.8.8"),
+                    ["autoSystemRoutingTable"] = new JsonArray("0.0.0.0/0"),
+                    ["autoOutboundsInterface"] = "auto"
+                },
+                ["sniffing"] = new JsonObject
+                {
+                    ["enabled"] = true,
+                    ["destOverride"] = new JsonArray("http", "tls", "quic"),
+                    ["routeOnly"] = true
+                }
+            });
+        }
+
         var proxyOutbound = node.Protocol.ToLowerInvariant() switch
         {
             "hysteria" or "hysteria2" or "hy2" => BuildHysteria2Outbound(node),
@@ -767,26 +781,64 @@ public sealed class XrayEngineService : IDisposable
             directOutbound["sendThrough"] = physicalLocalIp;
         }
 
+        var outboundsArray = new JsonArray
+        {
+            proxyOutbound,
+            directOutbound,
+            new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
+        };
+        if (tunMode)
+        {
+            outboundsArray.Add(new JsonObject { ["tag"] = "dns", ["protocol"] = "dns" });
+        }
+
         var root = new JsonObject
         {
             ["log"] = new JsonObject { ["loglevel"] = "info" },
             ["dns"] = new JsonObject
             {
-                ["servers"] = new JsonArray("77.88.8.8", "1.1.1.1")
+                ["servers"] = new JsonArray("1.1.1.1", "77.88.8.8")
             },
             ["inbounds"] = inbounds,
-            ["outbounds"] = new JsonArray
-            {
-                proxyOutbound,
-                directOutbound,
-                new JsonObject { ["tag"] = "block", ["protocol"] = "blackhole" }
-            }
+            ["outbounds"] = outboundsArray
         };
 
-        // When httpPort == 0 (cascade upstream), sing-box handles DNS/routing; Xray only forwards proxy traffic
-        if (httpPort > 0)
+        // When httpPort > 0 (SystemProxy) or tunMode (Native xray_tun), configure Xray routing
+        if (httpPort > 0 || tunMode)
         {
             var rules = new JsonArray();
+            if (tunMode)
+            {
+                rules.Add(new JsonObject
+                {
+                    ["network"] = "udp",
+                    ["port"] = "135,137-139,5353",
+                    ["outboundTag"] = "block"
+                });
+                rules.Add(new JsonObject
+                {
+                    ["ip"] = new JsonArray("224.0.0.0/3", "ff00::/8"),
+                    ["outboundTag"] = "block"
+                });
+                rules.Add(new JsonObject
+                {
+                    ["inboundTag"] = new JsonArray("tun"),
+                    ["port"] = "53",
+                    ["outboundTag"] = "dns"
+                });
+            }
+            var serverBypass = new JsonArray { "domain:proksbro.space" };
+            if (!string.IsNullOrWhiteSpace(node.Host) && !IPAddress.TryParse(node.Host, out _) &&
+                !node.Host.EndsWith(".proksbro.space", StringComparison.OrdinalIgnoreCase))
+            {
+                serverBypass.Add($"domain:{node.Host}");
+            }
+            rules.Add(new JsonObject
+            {
+                ["type"] = "field",
+                ["domain"] = serverBypass,
+                ["outboundTag"] = "direct"
+            });
             if (exclusions is { Count: > 0 })
             {
                 var customIps = new JsonArray();
