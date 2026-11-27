@@ -6,7 +6,7 @@ public static class AppConfig
 {
     public const string AppName = "Как 2 пальца";
     public const string AppSlogan = "Два движения. Ноль проблем.";
-    public const string AppVersion = "0.3.6 BETA";
+    public const string AppVersion = "0.3.7 BETA";
     public const int MaxDevices = 4;
 
     public const string ApiBaseUrl = "https://api.proksbro.space";

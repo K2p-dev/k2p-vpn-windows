@@ -268,7 +268,12 @@ public sealed class XrayEngineService : IDisposable
 
         var assetDir = ResolveGeodataDirectory();
         var hasGeodata = HasValidGeodata(assetDir);
-        // v2rayN-style: clear sendThrough in cascade mode when strict_route=true to avoid interface conflicts
+        var physicalLocalIp = upstreamAuth.HasValue ? GetActivePhysicalInterfaceIp() : null;
+        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
+        {
+            AppLogger.Log("XRAY", $"Физический IP для sendThrough: {physicalLocalIp}");
+        }
+
         var configJson = BuildXrayConfig(
             node,
             bypassRussia && hasGeodata,
@@ -276,7 +281,7 @@ public sealed class XrayEngineService : IDisposable
             enableSystemProxy ? httpPort : 0,
             upstreamAuth,
             _storage.Current.BypassExclusions,
-            physicalLocalIp: null);
+            physicalLocalIp);
 
         await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
         AppLogger.Log("XRAY", $"xray-runtime.json:\n{AppLogger.MaskSecrets(configJson)}");
