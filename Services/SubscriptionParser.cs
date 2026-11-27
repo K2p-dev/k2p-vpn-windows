@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Web;
 using K2pVpnWindows.Models;
@@ -58,6 +59,9 @@ public static partial class SubscriptionParser
     {
         var trimmed = input.Trim();
         if (trimmed.StartsWith("vless://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("trojan://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("ss://", StringComparison.OrdinalIgnoreCase) ||
             trimmed.StartsWith("hysteria2://", StringComparison.OrdinalIgnoreCase) ||
             trimmed.StartsWith("hy2://", StringComparison.OrdinalIgnoreCase))
         {
@@ -88,6 +92,12 @@ public static partial class SubscriptionParser
     {
         try
         {
+            if (rawUri.StartsWith("vmess://", StringComparison.OrdinalIgnoreCase))
+                return ParseVmess(rawUri);
+
+            if (rawUri.StartsWith("ss://", StringComparison.OrdinalIgnoreCase))
+                return ParseShadowsocks(rawUri);
+
             if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var uri))
                 return null;
 
@@ -95,6 +105,7 @@ public static partial class SubscriptionParser
             return scheme switch
             {
                 "vless" => ParseVless(rawUri, uri),
+                "trojan" => ParseTrojan(rawUri, uri),
                 "hysteria2" or "hy2" => ParseHysteria2(rawUri, uri),
                 _ => null
             };
@@ -111,8 +122,7 @@ public static partial class SubscriptionParser
         var host = uri.Host;
         var port = uri.Port > 0 ? uri.Port : 443;
 
-        var hashIdx = rawUri.IndexOf('#');
-        var rawFragment = hashIdx >= 0 ? rawUri[(hashIdx + 1)..] : string.Empty;
+        var rawFragment = rawUri.Contains('#') ? rawUri[(rawUri.IndexOf('#') + 1)..] : string.Empty;
         var decodedName = DecodeSafeUrl(rawFragment);
         if (string.IsNullOrWhiteSpace(decodedName)) decodedName = $"{host}:{port}";
 
@@ -139,7 +149,7 @@ public static partial class SubscriptionParser
 
         return new VpnServerNode
         {
-            Id = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(rawUri)))[..12],
+            Id = ComputeId(rawUri),
             Name = finalName,
             FlagEmoji = flag,
             CountryName = country,
@@ -166,14 +176,159 @@ public static partial class SubscriptionParser
         };
     }
 
+    private static VpnServerNode? ParseVmess(string rawUri)
+    {
+        var b64 = rawUri[8..].Trim();
+        var jsonText = DecodeBase64Safe(b64);
+        var obj = JsonNode.Parse(jsonText)?.AsObject();
+        if (obj is null) return null;
+
+        var host = obj["add"]?.ToString() ?? "";
+        if (!int.TryParse(obj["port"]?.ToString(), out var port) || port <= 0) port = 443;
+        var uuid = obj["id"]?.ToString() ?? "";
+        var ps = obj["ps"]?.ToString() ?? $"{host}:{port}";
+        var net = obj["net"]?.ToString()?.ToLowerInvariant() ?? "tcp";
+        var tls = obj["tls"]?.ToString()?.ToLowerInvariant() ?? "";
+        var sni = obj["sni"]?.ToString();
+        var hostHeader = obj["host"]?.ToString();
+        var path = obj["path"]?.ToString();
+        var fp = obj["fp"]?.ToString();
+
+        var (finalName, flag, country, isLte) = ProcessName(ps, host);
+        var sec = tls == "tls" ? "tls" : "none";
+
+        return new VpnServerNode
+        {
+            Id = ComputeId(rawUri),
+            Name = finalName,
+            FlagEmoji = flag,
+            CountryName = country,
+            ProtocolLabel = $"VMess • {net.ToUpperInvariant()}{(sec == "tls" ? " • TLS" : "")}",
+            IsLte = isLte,
+            RawUri = rawUri,
+            Protocol = "vmess",
+            Host = host,
+            Port = port,
+            UuidOrPassword = uuid,
+            Network = net,
+            Security = sec,
+            Sni = string.IsNullOrWhiteSpace(sni) ? hostHeader : sni,
+            HostHeader = hostHeader,
+            Path = path,
+            Fp = fp
+        };
+    }
+
+    private static VpnServerNode ParseTrojan(string rawUri, Uri uri)
+    {
+        var password = Uri.UnescapeDataString(uri.UserInfo);
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 443;
+
+        var rawFragment = rawUri.Contains('#') ? rawUri[(rawUri.IndexOf('#') + 1)..] : string.Empty;
+        var decodedName = DecodeSafeUrl(rawFragment);
+        if (string.IsNullOrWhiteSpace(decodedName)) decodedName = $"{host}:{port}";
+
+        var query = HttpUtility.ParseQueryString(uri.Query);
+        var net = query["type"]?.ToLowerInvariant() ?? "tcp";
+        var sni = query["sni"];
+        var fp = query["fp"];
+        var path = query["path"];
+        var hostHeader = query["host"];
+        var serviceName = query["serviceName"];
+        var insecureStr = query["allowInsecure"];
+        var insecure = insecureStr == "1" || string.Equals(insecureStr, "true", StringComparison.OrdinalIgnoreCase);
+
+        var (finalName, flag, country, isLte) = ProcessName(decodedName, host);
+
+        return new VpnServerNode
+        {
+            Id = ComputeId(rawUri),
+            Name = finalName,
+            FlagEmoji = flag,
+            CountryName = country,
+            ProtocolLabel = $"Trojan • {net.ToUpperInvariant()} • TLS",
+            IsLte = isLte,
+            RawUri = rawUri,
+            Protocol = "trojan",
+            Host = host,
+            Port = port,
+            UuidOrPassword = password,
+            Network = net,
+            Security = "tls",
+            Sni = sni,
+            Fp = fp,
+            Path = path,
+            HostHeader = hostHeader,
+            ServiceName = serviceName,
+            Insecure = insecure
+        };
+    }
+
+    private static VpnServerNode? ParseShadowsocks(string rawUri)
+    {
+        var hashIdx = rawUri.IndexOf('#');
+        var rawFragment = hashIdx >= 0 ? rawUri[(hashIdx + 1)..] : string.Empty;
+        var body = hashIdx >= 0 ? rawUri[5..hashIdx] : rawUri[5..];
+
+        string method, password, host;
+        int port;
+
+        if (body.Contains('@'))
+        {
+            var parts = body.Split('@', 2);
+            var userInfo = parts[0].Contains(':') ? parts[0] : DecodeBase64Safe(parts[0]);
+            var mp = userInfo.Split(':', 2);
+            if (mp.Length != 2) return null;
+            method = mp[0];
+            password = Uri.UnescapeDataString(mp[1]);
+
+            var hpPart = parts[1].Split('?', 2)[0];
+            var hp = hpPart.Split(':', 2);
+            if (hp.Length != 2 || !int.TryParse(hp[1], out port)) return null;
+            host = hp[0];
+        }
+        else
+        {
+            var decoded = DecodeBase64Safe(body);
+            var atParts = decoded.Split('@', 2);
+            if (atParts.Length != 2) return null;
+            var mp = atParts[0].Split(':', 2);
+            var hp = atParts[1].Split(':', 2);
+            if (mp.Length != 2 || hp.Length != 2 || !int.TryParse(hp[1], out port)) return null;
+            method = mp[0];
+            password = mp[1];
+            host = hp[0];
+        }
+
+        var decodedName = DecodeSafeUrl(rawFragment);
+        if (string.IsNullOrWhiteSpace(decodedName)) decodedName = $"{host}:{port}";
+        var (finalName, flag, country, isLte) = ProcessName(decodedName, host);
+
+        return new VpnServerNode
+        {
+            Id = ComputeId(rawUri),
+            Name = finalName,
+            FlagEmoji = flag,
+            CountryName = country,
+            ProtocolLabel = $"Shadowsocks • {method}",
+            IsLte = isLte,
+            RawUri = rawUri,
+            Protocol = "shadowsocks",
+            Host = host,
+            Port = port,
+            UuidOrPassword = password,
+            Security = method // store cipher method in Security for SS
+        };
+    }
+
     private static VpnServerNode ParseHysteria2(string rawUri, Uri uri)
     {
         var password = Uri.UnescapeDataString(uri.UserInfo);
         var host = uri.Host;
         var port = uri.Port > 0 ? uri.Port : 443;
 
-        var hashIdx = rawUri.IndexOf('#');
-        var rawFragment = hashIdx >= 0 ? rawUri[(hashIdx + 1)..] : string.Empty;
+        var rawFragment = rawUri.Contains('#') ? rawUri[(rawUri.IndexOf('#') + 1)..] : string.Empty;
         var decodedName = DecodeSafeUrl(rawFragment);
         if (string.IsNullOrWhiteSpace(decodedName)) decodedName = $"{host}:{port}";
 
@@ -188,7 +343,7 @@ public static partial class SubscriptionParser
 
         return new VpnServerNode
         {
-            Id = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(rawUri)))[..12],
+            Id = ComputeId(rawUri),
             Name = finalName,
             FlagEmoji = flag,
             CountryName = country,
@@ -205,6 +360,9 @@ public static partial class SubscriptionParser
             ObfsPassword = obfsPassword
         };
     }
+
+    private static string ComputeId(string rawUri) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(rawUri)))[..12];
 
     private static (string FinalName, string Flag, string Country, bool IsLte) ProcessName(string rawName, string host)
     {

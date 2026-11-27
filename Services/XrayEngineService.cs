@@ -268,12 +268,7 @@ public sealed class XrayEngineService : IDisposable
 
         var assetDir = ResolveGeodataDirectory();
         var hasGeodata = HasValidGeodata(assetDir);
-        var physicalLocalIp = upstreamAuth.HasValue ? GetActivePhysicalInterfaceIp() : null;
-        if (!string.IsNullOrWhiteSpace(physicalLocalIp))
-        {
-            AppLogger.Log("XRAY", $"Физический IP для sendThrough: {physicalLocalIp}");
-        }
-
+        // v2rayN-style: clear sendThrough in cascade mode when strict_route=true to avoid interface conflicts
         var configJson = BuildXrayConfig(
             node,
             bypassRussia && hasGeodata,
@@ -281,7 +276,7 @@ public sealed class XrayEngineService : IDisposable
             enableSystemProxy ? httpPort : 0,
             upstreamAuth,
             _storage.Current.BypassExclusions,
-            physicalLocalIp);
+            physicalLocalIp: null);
 
         await File.WriteAllTextAsync(AppConfig.XrayRuntimeConfigPath, configJson, Utf8NoBom);
         AppLogger.Log("XRAY", $"xray-runtime.json:\n{AppLogger.MaskSecrets(configJson)}");
@@ -525,7 +520,7 @@ public sealed class XrayEngineService : IDisposable
         return port;
     }
 
-    private static async Task<bool> WaitForLocalPortAsync(int port, TimeSpan timeout)
+    private static async Task<bool> WaitForLocalPortAsync(int port, TimeSpan timeout, bool verifySocks5Handshake = true)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
@@ -534,6 +529,19 @@ public sealed class XrayEngineService : IDisposable
             {
                 using var client = new TcpClient();
                 await client.ConnectAsync(IPAddress.Loopback, port);
+                if (verifySocks5Handshake)
+                {
+                    // v2rayN-style SOCKS5 greeting check (methods: noauth 0x00, user/pass 0x02)
+                    var stream = client.GetStream();
+                    await stream.WriteAsync(new byte[] { 0x05, 0x02, 0x00, 0x02 });
+                    var resp = new byte[2];
+                    var read = await stream.ReadAsync(resp);
+                    if (read < 2 || resp[0] != 0x05)
+                    {
+                        await Task.Delay(100);
+                        continue;
+                    }
+                }
                 return true;
             }
             catch { await Task.Delay(100); }
@@ -738,11 +746,14 @@ public sealed class XrayEngineService : IDisposable
             });
         }
 
-        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
-            ? BuildHysteria2Outbound(node)
-            : BuildVlessOutbound(node);
+        var proxyOutbound = node.Protocol.ToLowerInvariant() switch
+        {
+            "hysteria" or "hysteria2" or "hy2" => BuildHysteria2Outbound(node),
+            "vmess" => BuildVmessOutbound(node),
+            "trojan" => BuildTrojanOutbound(node),
+            "shadowsocks" => BuildShadowsocksOutbound(node),
+            _ => BuildVlessOutbound(node)
+        };
 
         var directOutbound = new JsonObject { ["tag"] = "direct", ["protocol"] = "freedom" };
         if (!string.IsNullOrWhiteSpace(physicalLocalIp))
@@ -926,6 +937,78 @@ public sealed class XrayEngineService : IDisposable
         try { return Uri.UnescapeDataString(value); }
         catch { return value; }
     }
+
+    private static JsonObject BuildVmessOutbound(VpnServerNode node) => new()
+    {
+        ["tag"] = "proxy",
+        ["protocol"] = "vmess",
+        ["settings"] = new JsonObject
+        {
+            ["vnext"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["address"] = node.Host,
+                    ["port"] = node.Port,
+                    ["users"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["id"] = node.UuidOrPassword,
+                            ["security"] = "auto"
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    private static JsonObject BuildTrojanOutbound(VpnServerNode node) => new()
+    {
+        ["tag"] = "proxy",
+        ["protocol"] = "trojan",
+        ["settings"] = new JsonObject
+        {
+            ["servers"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["address"] = node.Host,
+                    ["port"] = node.Port,
+                    ["password"] = node.UuidOrPassword
+                }
+            }
+        },
+        ["streamSettings"] = new JsonObject
+        {
+            ["network"] = string.IsNullOrWhiteSpace(node.Network) ? "tcp" : node.Network,
+            ["security"] = "tls",
+            ["tlsSettings"] = new JsonObject
+            {
+                ["serverName"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["allowInsecure"] = node.Insecure
+            }
+        }
+    };
+
+    private static JsonObject BuildShadowsocksOutbound(VpnServerNode node) => new()
+    {
+        ["tag"] = "proxy",
+        ["protocol"] = "shadowsocks",
+        ["settings"] = new JsonObject
+        {
+            ["servers"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["address"] = node.Host,
+                    ["port"] = node.Port,
+                    ["method"] = string.IsNullOrWhiteSpace(node.Security) ? "aes-256-gcm" : node.Security,
+                    ["password"] = node.UuidOrPassword
+                }
+            }
+        }
+    };
 
     private static JsonObject BuildHysteria2Outbound(VpnServerNode node)
     {

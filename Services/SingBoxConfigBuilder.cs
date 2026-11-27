@@ -1,7 +1,9 @@
+using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using K2pVpnWindows.Config;
 using K2pVpnWindows.Models;
 
 namespace K2pVpnWindows.Services;
@@ -97,11 +99,8 @@ public static class SingBoxConfigBuilder
             });
         }
 
-        JsonObject proxyOutbound;
-        if (upstreamSocks.HasValue)
-        {
-            // Cascade mode: singbox-tun -> local authenticated Xray SOCKS5 bridge
-            proxyOutbound = new JsonObject
+        var proxyOutbound = upstreamSocks.HasValue
+            ? new JsonObject
             {
                 ["type"] = "socks",
                 ["tag"] = "proxy",
@@ -110,16 +109,8 @@ public static class SingBoxConfigBuilder
                 ["username"] = upstreamSocks.Value.Username,
                 ["password"] = upstreamSocks.Value.Password,
                 ["version"] = "5"
-            };
-        }
-        else
-        {
-            proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
-                ? BuildHysteria2Outbound(node)
-                : BuildVlessOutbound(node);
-        }
+            }
+            : BuildProtocolOutbound(node);
 
         var outbounds = new JsonArray
         {
@@ -127,19 +118,51 @@ public static class SingBoxConfigBuilder
             new JsonObject { ["type"] = "direct", ["tag"] = "direct" }
         };
 
-        var routeRules = new JsonArray
-        {
-            new JsonObject { ["action"] = "sniff" },
-            new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" }
-        };
+        var routeRules = new JsonArray();
 
-        // Exclude xray.exe and VPN server domain from singbox-tun to prevent routing/DNS loop
+        // v2rayN-style core process protection: hijack DNS of protected cores first, then route their traffic direct
         if (upstreamSocks.HasValue)
+        {
+            var xrayPath = Path.GetFullPath(Path.Combine(AppConfig.CoreDir, "xray.exe"));
+            routeRules.Add(new JsonObject
+            {
+                ["port"] = new JsonArray(53),
+                ["process_path"] = new JsonArray(xrayPath),
+                ["action"] = "hijack-dns"
+            });
+            routeRules.Add(new JsonObject
+            {
+                ["process_path"] = new JsonArray(xrayPath),
+                ["outbound"] = "direct"
+            });
+        }
+
+        routeRules.Add(new JsonObject { ["action"] = "sniff" });
+        routeRules.Add(new JsonObject
+        {
+            ["protocol"] = new JsonArray("dns"),
+            ["action"] = "hijack-dns"
+        });
+
+        // v2rayN-style TUN noise & self-IP loop rejection
+        if (mode == VpnMode.Tun)
         {
             routeRules.Add(new JsonObject
             {
-                ["process_name"] = new JsonArray("xray.exe"),
-                ["outbound"] = "direct"
+                ["ip_cidr"] = new JsonArray("172.19.0.1/32"),
+                ["action"] = "reject",
+                ["method"] = "drop"
+            });
+            routeRules.Add(new JsonObject
+            {
+                ["network"] = new JsonArray("udp"),
+                ["port"] = new JsonArray(135, 137, 138, 139, 5353),
+                ["action"] = "reject"
+            });
+            routeRules.Add(new JsonObject
+            {
+                ["ip_cidr"] = new JsonArray("224.0.0.0/3", "ff00::/8"),
+                ["action"] = "reject"
             });
         }
 
@@ -212,12 +235,6 @@ public static class SingBoxConfigBuilder
 
     public static string BuildForPing(VpnServerNode node, int socksPort)
     {
-        var proxyOutbound = node.Protocol.Equals("hysteria", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hysteria2", StringComparison.OrdinalIgnoreCase) ||
-                            node.Protocol.Equals("hy2", StringComparison.OrdinalIgnoreCase)
-            ? BuildHysteria2Outbound(node)
-            : BuildVlessOutbound(node);
-
         var root = new JsonObject
         {
             ["log"] = new JsonObject { ["level"] = "error" },
@@ -233,7 +250,7 @@ public static class SingBoxConfigBuilder
             },
             ["outbounds"] = new JsonArray
             {
-                proxyOutbound,
+                BuildProtocolOutbound(node),
                 new JsonObject { ["type"] = "direct", ["tag"] = "direct" }
             },
             ["route"] = new JsonObject
@@ -244,6 +261,16 @@ public static class SingBoxConfigBuilder
 
         return root.ToJsonString(JsonOptions);
     }
+
+    private static JsonObject BuildProtocolOutbound(VpnServerNode node) =>
+        node.Protocol.ToLowerInvariant() switch
+        {
+            "hysteria" or "hysteria2" or "hy2" => BuildHysteria2Outbound(node),
+            "vmess" => BuildVmessOutbound(node),
+            "trojan" => BuildTrojanOutbound(node),
+            "shadowsocks" => BuildShadowsocksOutbound(node),
+            _ => BuildVlessOutbound(node)
+        };
 
     private static JsonObject BuildVlessOutbound(VpnServerNode node)
     {
@@ -260,28 +287,93 @@ public static class SingBoxConfigBuilder
             outbound["flow"] = node.Flow;
 
         var sec = node.Security?.ToLowerInvariant() ?? (!string.IsNullOrWhiteSpace(node.Pbk) ? "reality" : "tls");
-        var tls = new JsonObject
+        if (sec != "none")
         {
-            ["enabled"] = true,
-            ["server_name"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
-            ["utls"] = new JsonObject
+            var tls = new JsonObject
             {
                 ["enabled"] = true,
-                ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : SafeUnescape(node.Fp)
+                ["server_name"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["utls"] = new JsonObject
+                {
+                    ["enabled"] = true,
+                    ["fingerprint"] = string.IsNullOrWhiteSpace(node.Fp) ? "chrome" : SafeUnescape(node.Fp)
+                }
+            };
+            if (sec == "reality")
+            {
+                tls["reality"] = new JsonObject
+                {
+                    ["enabled"] = true,
+                    ["public_key"] = SafeUnescape(node.Pbk ?? ""),
+                    ["short_id"] = SafeUnescape(node.Sid ?? "")
+                };
+            }
+            outbound["tls"] = tls;
+        }
+
+        ApplyTransport(outbound, node);
+        return outbound;
+    }
+
+    private static JsonObject BuildVmessOutbound(VpnServerNode node)
+    {
+        var outbound = new JsonObject
+        {
+            ["type"] = "vmess",
+            ["tag"] = "proxy",
+            ["server"] = node.Host,
+            ["server_port"] = node.Port,
+            ["uuid"] = node.UuidOrPassword,
+            ["security"] = "auto"
+        };
+
+        if (string.Equals(node.Security, "tls", StringComparison.OrdinalIgnoreCase))
+        {
+            outbound["tls"] = new JsonObject
+            {
+                ["enabled"] = true,
+                ["server_name"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["insecure"] = node.Insecure
+            };
+        }
+
+        ApplyTransport(outbound, node);
+        return outbound;
+    }
+
+    private static JsonObject BuildTrojanOutbound(VpnServerNode node)
+    {
+        var outbound = new JsonObject
+        {
+            ["type"] = "trojan",
+            ["tag"] = "proxy",
+            ["server"] = node.Host,
+            ["server_port"] = node.Port,
+            ["password"] = node.UuidOrPassword,
+            ["tls"] = new JsonObject
+            {
+                ["enabled"] = true,
+                ["server_name"] = string.IsNullOrWhiteSpace(node.Sni) ? node.Host : SafeUnescape(node.Sni),
+                ["insecure"] = node.Insecure
             }
         };
 
-        if (sec == "reality")
-        {
-            tls["reality"] = new JsonObject
-            {
-                ["enabled"] = true,
-                ["public_key"] = SafeUnescape(node.Pbk ?? ""),
-                ["short_id"] = SafeUnescape(node.Sid ?? "")
-            };
-        }
-        outbound["tls"] = tls;
+        ApplyTransport(outbound, node);
+        return outbound;
+    }
 
+    private static JsonObject BuildShadowsocksOutbound(VpnServerNode node) => new()
+    {
+        ["type"] = "shadowsocks",
+        ["tag"] = "proxy",
+        ["server"] = node.Host,
+        ["server_port"] = node.Port,
+        ["method"] = string.IsNullOrWhiteSpace(node.Security) ? "aes-256-gcm" : node.Security,
+        ["password"] = node.UuidOrPassword
+    };
+
+    private static void ApplyTransport(JsonObject outbound, VpnServerNode node)
+    {
         var net = node.Network?.ToLowerInvariant() ?? "tcp";
         if (net == "ws")
         {
@@ -302,8 +394,6 @@ public static class SingBoxConfigBuilder
                 ["service_name"] = SafeUnescape(node.ServiceName ?? node.Path ?? "")
             };
         }
-
-        return outbound;
     }
 
     private static JsonObject BuildHysteria2Outbound(VpnServerNode node)

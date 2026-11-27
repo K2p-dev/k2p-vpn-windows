@@ -1,10 +1,10 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.5"
+  #define MyAppVersion "0.3.6-beta"
 #endif
 
 [Setup]
 AppId={{8F3D2A1B-9C4E-4B7A-9D1E-2C3A4B5D6E7F}
-AppName=Как 2 пальца (K2P VPN)
+AppName=Как 2 пальца (K2P VPN BETA)
 AppVersion={#MyAppVersion}
 AppPublisher=K2P Dev
 AppPublisherURL=https://lk.proksbro.space
