@@ -10,15 +10,24 @@
     <Border x:Name="RootBorder" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource OutlineBrush}"
             BorderThickness="1" CornerRadius="20" ClipToBounds="True">
         <Grid>
-            <!-- Background Layer (Gradient / Static Image / Hardware Video) -->
-            <Border CornerRadius="20" ClipToBounds="True">
+            <!-- Background Layer (Gradient / Static Image / Hardware Video) strictly clipped to CornerRadius -->
+            <Border x:Name="BgContainer" CornerRadius="20" ClipToBounds="True">
+                <Border.OpacityMask>
+                    <VisualBrush Stretch="None">
+                        <VisualBrush.Visual>
+                            <Border Background="Black" CornerRadius="20"
+                                    Width="{Binding ActualWidth, ElementName=BgContainer}"
+                                    Height="{Binding ActualHeight, ElementName=BgContainer}"/>
+                        </VisualBrush.Visual>
+                    </VisualBrush>
+                </Border.OpacityMask>
                 <Grid>
-                    <Border x:Name="BgGradientLayer" Background="{DynamicResource AmbientGlowBrush}"/>
-                    <Image x:Name="BgImageLayer" Visibility="Collapsed" Stretch="UniformToFill"/>
+                    <Border x:Name="BgGradientLayer" CornerRadius="20" Background="{DynamicResource AmbientGlowBrush}"/>
+                    <Border x:Name="BgImageLayer" CornerRadius="20" Visibility="Collapsed"/>
                     <MediaElement x:Name="BgVideoLayer" Visibility="Collapsed" LoadedBehavior="Manual"
                                   UnloadedBehavior="Manual" IsMuted="True" ScrubbingEnabled="False"
                                   Stretch="UniformToFill" MediaEnded="OnVideoMediaEnded"/>
-                    <Border x:Name="BgDimOverlay" Background="#000000" Opacity="0" IsHitTestVisible="False"/>
+                    <Border x:Name="BgDimOverlay" CornerRadius="20" Background="#000000" Opacity="0" IsHitTestVisible="False"/>
                 </Grid>
             </Border>
 
@@ -44,7 +53,7 @@
                                    Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                         <Border Background="{DynamicResource CardVariantBrush}" BorderBrush="{DynamicResource OutlineBrush}"
                                 BorderThickness="1" CornerRadius="6" Padding="5,2" Margin="7,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="v0.2.9" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentTextOnPageBrush}"/>
+                            <TextBlock Text="v0.2.10" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource AccentTextOnPageBrush}"/>
                         </Border>
                     </StackPanel>
 

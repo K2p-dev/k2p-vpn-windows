@@ -1,4 +1,4 @@
-# Отчёт по аудиту безопасности K2P VPN Windows (`v0.2.9 BETA`)
+# Отчёт по аудиту безопасности K2P VPN Windows (`v0.2.10 BETA`)
 
 Дата аудита: 2026-11-27  
 Область проверки: `K2pVpnWindows` (.NET 8 WPF, `Services/`, `Config/`, `Views/`)
@@ -35,4 +35,5 @@
   - Конфиги записываются строго в UTF-8 без BOM (`new UTF8Encoding(false)`).
   - При логировании в `AppLogger` поля `id`, `publicKey`, `auth`, `password` автоматически маскируются (`***`).
   - В `WindowsIntegrationService.OpenUrlInBrowser` разрешены только схемы `https://` и `http://` (защита от инъекции сторонних URI-схем).
+  - В `MainWindow.TryGetSafeMediaPath` пути фоновых изображений/видео проверяются на локальность (запрещены UNC/сетевые URI), допустимые расширения и лимит размера (25 МБ для фото, 150 МБ для видео); изображения декодируются с `DecodePixelWidth = 920` и `CacheOption = OnLoad` без блокировки файла.
   - В TUN-режиме весь IPv6-трафик (`::/0`) блокируется через `block`, чтобы исключить утечку IPv6 мимо IPv4-туннеля.

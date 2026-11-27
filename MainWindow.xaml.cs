@@ -246,34 +246,58 @@ public partial class MainWindow : Window
         var s = App.Storage.Current;
         BgGradientLayer.Visibility = s.BackgroundType == AppBackgroundType.Gradient ? Visibility.Visible : Visibility.Collapsed;
 
-        if (s.BackgroundType == AppBackgroundType.Image && !string.IsNullOrWhiteSpace(s.BackgroundMediaPath) && File.Exists(s.BackgroundMediaPath))
+        if (s.BackgroundType == AppBackgroundType.Image &&
+            TryGetSafeMediaPath(s.BackgroundMediaPath, isVideo: false, out var safeImagePath))
         {
             StopAndReleaseVideo();
-            BgImageLayer.Source = new BitmapImage(new Uri(s.BackgroundMediaPath));
-            BgImageLayer.Visibility = Visibility.Visible;
-            BgDimOverlay.Opacity = s.BackgroundDimOpacity;
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(safeImagePath, UriKind.Absolute);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 920; // Cap memory usage (2x max window width)
+                bmp.EndInit();
+                bmp.Freeze();
+
+                var brush = new System.Windows.Media.ImageBrush(bmp)
+                {
+                    Stretch = System.Windows.Media.Stretch.UniformToFill
+                };
+                brush.Freeze();
+                BgImageLayer.Background = brush;
+                BgImageLayer.Visibility = Visibility.Visible;
+                BgDimOverlay.Opacity = s.BackgroundDimOpacity;
+                return;
+            }
+            catch
+            {
+                // Fall back to gradient if image is corrupted
+            }
         }
-        else if (s.BackgroundType == AppBackgroundType.Video && !string.IsNullOrWhiteSpace(s.BackgroundMediaPath) && File.Exists(s.BackgroundMediaPath))
+        else if (s.BackgroundType == AppBackgroundType.Video &&
+                 TryGetSafeMediaPath(s.BackgroundMediaPath, isVideo: true, out _))
         {
-            BgImageLayer.Source = null;
+            BgImageLayer.Background = null;
             BgImageLayer.Visibility = Visibility.Collapsed;
             BgVideoLayer.Visibility = Visibility.Visible;
             BgDimOverlay.Opacity = s.BackgroundDimOpacity;
             SyncVideoPlaybackState();
+            return;
         }
-        else
-        {
-            BgImageLayer.Source = null;
-            BgImageLayer.Visibility = Visibility.Collapsed;
-            StopAndReleaseVideo();
-            BgDimOverlay.Opacity = 0;
-        }
+
+        BgImageLayer.Background = null;
+        BgImageLayer.Visibility = Visibility.Collapsed;
+        StopAndReleaseVideo();
+        BgDimOverlay.Opacity = 0;
+        BgGradientLayer.Visibility = Visibility.Visible;
     }
 
     private void SyncVideoPlaybackState()
     {
         var s = App.Storage.Current;
-        if (s.BackgroundType != AppBackgroundType.Video || string.IsNullOrWhiteSpace(s.BackgroundMediaPath) || !File.Exists(s.BackgroundMediaPath))
+        if (s.BackgroundType != AppBackgroundType.Video ||
+            !TryGetSafeMediaPath(s.BackgroundMediaPath, isVideo: true, out var safeVideoPath))
         {
             StopAndReleaseVideo();
             return;
@@ -283,7 +307,7 @@ public partial class MainWindow : Window
         if (canPlay)
         {
             if (BgVideoLayer.Source is null)
-                BgVideoLayer.Source = new Uri(s.BackgroundMediaPath);
+                BgVideoLayer.Source = new Uri(safeVideoPath, UriKind.Absolute);
             BgVideoLayer.Play();
         }
         else if (!IsVisible)
@@ -294,6 +318,38 @@ public partial class MainWindow : Window
         else
         {
             BgVideoLayer.Pause();
+        }
+    }
+
+    private static bool TryGetSafeMediaPath(string? rawPath, bool isVideo, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(rawPath)) return false;
+
+        try
+        {
+            if (!Path.IsPathRooted(rawPath)) return false;
+            var candidate = Path.GetFullPath(rawPath);
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) || !uri.IsFile || uri.IsUnc)
+                return false;
+
+            var ext = Path.GetExtension(candidate).ToLowerInvariant();
+            var allowed = isVideo
+                ? ext is ".mp4" or ".wmv"
+                : ext is ".png" or ".jpg" or ".jpeg" or ".webp";
+            if (!allowed || !File.Exists(candidate)) return false;
+
+            var maxBytes = isVideo ? 150L * 1024 * 1024 : 25L * 1024 * 1024;
+            var info = new FileInfo(candidate);
+            if (info.Length is <= 0 or > 150L * 1024 * 1024 || info.Length > maxBytes)
+                return false;
+
+            fullPath = candidate;
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
