@@ -26,6 +26,15 @@ public partial class App : System.Windows.Application
         }
 
         Storage = new SettingsStorageService();
+        if (!string.Equals(Storage.Current.CachedAppVersion, Config.AppConfig.AppVersion, StringComparison.Ordinal))
+        {
+            Storage.Update(s =>
+            {
+                s.CachedSubscriptionBody = null;
+                s.CachedTrafficInfo = null;
+                s.CachedAppVersion = Config.AppConfig.AppVersion;
+            });
+        }
         ApiClient = new K2pApiClient(Storage);
         XrayEngine = new XrayEngineService(Storage);
         WinIntegration = new WindowsIntegrationService(ApiClient, Storage);

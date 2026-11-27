@@ -101,4 +101,5 @@ public sealed class LocalAppSettings
     public DateTime? LastUpdateCheckUtc { get; set; }
     public string? CachedSubscriptionBody { get; set; }
     public string? CachedTrafficInfo { get; set; }
+    public string? CachedAppVersion { get; set; }
 }
